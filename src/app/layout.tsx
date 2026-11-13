@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Providers from "@/components/Providers";
 
 export const metadata: Metadata = {
   title: "Orquestador",
-  description: "Plataforma inteligente para administrar múltiples Páginas de Facebook mediante IA",
+  description:
+    "Plataforma inteligente para administrar múltiples Páginas de Facebook mediante IA",
 };
 
 export default function RootLayout({
@@ -13,7 +15,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }
