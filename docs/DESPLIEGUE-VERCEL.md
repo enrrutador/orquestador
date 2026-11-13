@@ -1,5 +1,12 @@
 # Desplegar Orquestador en Vercel
 
+> ⚠️ **GUÍA EN DESUSO (2026-11-13).** El proyecto cambió de rumbo a
+> **local primero**: Orquestador corre en el dispositivo del usuario
+> (PC local o Android local), no en servidores externos. Esta guía se
+> conserva solo como referencia histórica.
+>
+> Guías vigentes: [LOCAL-PC.md](LOCAL-PC.md) y [LOCAL-ANDROID.md](LOCAL-ANDROID.md)
+
 Guía paso a paso (se puede hacer desde el teléfono).
 
 ---

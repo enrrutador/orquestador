@@ -14,14 +14,10 @@ interface ChatBody {
 
 export async function POST(req: Request) {
   try {
+    // La sesión es opcional (enfoque local primero): sin login OAuth la
+    // app trabaja en modo navegador y el chat funciona igual; el token,
+    // cuando está, habilita la herramienta de listar Páginas por API.
     const session = await getServerSession(authOptions);
-
-    if (!session?.accessToken) {
-      return NextResponse.json(
-        { error: "No autenticado. Conectá tu cuenta de Facebook." },
-        { status: 401 }
-      );
-    }
 
     const body = (await req.json()) as ChatBody;
     const message = (body.message || "").trim();
@@ -44,7 +40,7 @@ export async function POST(req: Request) {
         selectedPages: body.selectedPages || [],
         activePageId: body.activePageId ?? null,
         conversationHistory: history,
-        accessToken: session.accessToken,
+        accessToken: session?.accessToken,
       },
       getDefaultProviderConfigs()
     );

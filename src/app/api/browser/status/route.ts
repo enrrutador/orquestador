@@ -1,19 +1,10 @@
-import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
-import { authOptions } from "@/lib/auth";
 import { getBrowserStatus } from "@/lib/browser/session";
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.accessToken) {
-      return NextResponse.json(
-        { error: "No autenticado. Conectá tu cuenta de Facebook." },
-        { status: 401 }
-      );
-    }
-
+    // Sin requisito de sesión: es una app local de un solo usuario y el
+    // estado del navegador del dispositivo no depende del login OAuth.
     const status = await getBrowserStatus();
     return NextResponse.json(status);
   } catch (error) {

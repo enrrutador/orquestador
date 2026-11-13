@@ -37,18 +37,32 @@ async function exchangeLongLivedToken(
   }
 }
 
+/**
+ * El login OAuth es OPCIONAL (enfoque local primero): solo se activa si la
+ * App de Meta está configurada en el entorno. Sin esas variables la app
+ * arranca en modo navegador y el resto de las funciones sigue andando.
+ */
+export function isOAuthConfigured(): boolean {
+  return Boolean(
+    process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET
+  );
+}
+
 export const authOptions: NextAuthOptions = {
-  providers: [
-    FacebookProvider({
-      clientId: process.env.FACEBOOK_CLIENT_ID!,
-      clientSecret: process.env.FACEBOOK_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          scope: "pages_show_list,pages_read_engagement,public_profile,email",
-        },
-      },
-    }),
-  ],
+  providers: isOAuthConfigured()
+    ? [
+        FacebookProvider({
+          clientId: process.env.FACEBOOK_CLIENT_ID!,
+          clientSecret: process.env.FACEBOOK_CLIENT_SECRET!,
+          authorization: {
+            params: {
+              scope:
+                "pages_show_list,pages_read_engagement,public_profile,email",
+            },
+          },
+        }),
+      ]
+    : [],
   callbacks: {
     async jwt({ token, account }) {
       // Login: guardamos el token ya intercambiado a larga duración.

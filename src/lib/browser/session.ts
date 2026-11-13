@@ -9,10 +9,10 @@ import path from "path";
  * sabe decir en qué estado está: conectada, pidiendo login, o frenada por
  * un checkpoint de seguridad de Facebook.
  *
- * Requiere un entorno con un proceso de servidor vivo y un Chromium
- * disponible (una computadora, una VM, Kaggle). En entornos serverless
- * sin navegador (Vercel) el estado se reporta como "no-verificable" y el
- * resto de la app sigue funcionando.
+ * El navegador vive en el mismo dispositivo que la app (enfoque local
+ * primero): la PC del usuario o su teléfono Android (dentro del entorno
+ * Debian interno). En entornos sin navegador disponible el estado se
+ * reporta como "no-verificable" y el resto de la app sigue funcionando.
  */
 
 export type BrowserState =
@@ -42,10 +42,18 @@ export function getStatePath(): string {
 function findChromium(): string | null {
   const candidates = [
     process.env.BROWSER_EXECUTABLE_PATH,
+    // Linux / Debian (incluye el Debian interno de Android local)
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
+    // Windows (PC local)
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Chromium\\Application\\chrome.exe",
+    // macOS (PC local)
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
   ].filter(Boolean) as string[];
 
   for (const c of candidates) {
@@ -65,7 +73,7 @@ export async function getBrowserStatus(): Promise<BrowserStatus> {
     return {
       state: "sin-sesion",
       detail:
-        "Todavía no hay una sesión de Facebook guardada en el servidor. Hay que iniciar sesión una vez con el navegador del servidor (ver docs/NAVEGADOR.md).",
+        "Todavía no hay una sesión de Facebook guardada en este dispositivo. Hay que iniciar sesión una vez con el navegador de la app (ver docs/NAVEGADOR.md).",
       browserAvailable: Boolean(executable || cdpUrl),
       hasSavedSession,
       checkedAt,
