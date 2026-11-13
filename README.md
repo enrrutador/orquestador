@@ -17,12 +17,21 @@ Plataforma inteligente para administrar múltiples Páginas de Facebook mediante
 - Detección automática de las Páginas que administrás (`/me/accounts`)
 - Interfaz para ver y seleccionar Páginas (optimizada para móvil)
 - Página activa + selección múltiple
-- **PWA lista** para instalar en Android / iOS
+- **PWA lista** para instalar en Android / iOS (iconos 192/512 incluidos)
 
-### Etapa 3 – En progreso
-- Arquitectura del Orquestador LLM
-- Sistema multi-provider con fallback
-- Tipos y esqueleto listos
+### Etapa 2 – Completada
+- Intercambio a token de larga duración al iniciar sesión (`fb_exchange_token`)
+- Renovación automática del token cuando está por vencer, sin volver a entrar
+
+### Etapa 3 – Completada (núcleo)
+- Proveedor de IA genérico compatible con OpenAI, configurable por entorno (por defecto NVIDIA NIM; sirve cualquier endpoint compatible)
+- Loop de tool calling del Orquestador, con herramientas reales: `list_pages` y `browser_status`
+- Chat funcional en el Dashboard (`/api/chat`), con el contexto de las Páginas seleccionadas
+
+### Etapa 4 – En progreso
+- Módulo de navegador con sesión persistente en el servidor y estados verificables (conectado / login / checkpoint / sin sesión)
+- Tarjeta **Navegador** en el Dashboard y detección de checkpoints (detalle en [docs/NAVEGADOR.md](docs/NAVEGADOR.md))
+- Falta: las acciones de interacción en sí (comentar, reaccionar) sobre esa sesión
 
 ## Stack
 
@@ -64,7 +73,7 @@ npm run dev
 3. Menú (⋮) → **Instalar aplicación** / **Agregar a la pantalla de inicio**
 4. Se abre a pantalla completa como una app nativa
 
-> **Iconos**: Todavía falta generar `icon-192.png` y `icon-512.png`. El SVG base está en `public/icons/icon.svg`.
+> **Iconos**: `icon-192.png` e `icon-512.png` generados desde el SVG base (`public/icons/icon.svg`).
 
 ## Estructura del proyecto
 
@@ -73,18 +82,23 @@ src/
 ├── app/
 │   ├── api/
 │   │   ├── auth/[...nextauth]/
+│   │   ├── browser/status/
+│   │   ├── chat/
 │   │   └── pages/
 │   ├── layout.tsx
 │   └── page.tsx
 ├── components/
 │   ├── Dashboard.tsx
 │   ├── PageCard.tsx
+│   ├── BrowserCard.tsx
+│   ├── Chat.tsx
 │   ├── Providers.tsx
 │   └── PWARegister.tsx
 ├── lib/
 │   ├── auth.ts
 │   ├── facebook.ts
-│   └── llm/                    # Orquestador (en construcción)
+│   ├── browser/                # Sesión del navegador (modalidad 100% navegador)
+│   └── llm/                    # Orquestador, providers y herramientas
 └── store/
     └── pages-store.ts
 
@@ -96,10 +110,8 @@ public/
 
 ## Próximas etapas
 
-- **Etapa 2**: Tokens long-lived + más info de Páginas
-- **Etapa 3**: Orquestador LLM + múltiples proveedores de IA + chat
-- **Etapa 4**: Navegador asistido
-- **Etapa 5+**: Herramientas de interacción, historial, tareas
+- **Etapa 4 (resto)**: Acciones de interacción del navegador (la prueba: que las Páginas comenten los posts del perfil propio)
+- **Etapa 5+**: Más herramientas de interacción, historial, tareas
 
 ## Notas importantes
 

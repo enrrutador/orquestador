@@ -4,6 +4,8 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { useEffect, useState, useMemo } from "react";
 import { usePagesStore } from "@/store/pages-store";
 import PageCard from "./PageCard";
+import BrowserCard from "./BrowserCard";
+import Chat from "./Chat";
 import {
   LogIn,
   LogOut,
@@ -246,6 +248,14 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+        <BrowserCard />
+
+        <Chat
+          selectedPages={pages
+            .filter((p) => selectedPageIds.includes(p.id))
+            .map((p) => ({ id: p.id, name: p.name }))}
+          activePageId={activePageId}
+        />
       </main>
 
       {/* Barra inferior de selección (fija, pensada para móvil) */}

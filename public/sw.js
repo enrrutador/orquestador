@@ -1,7 +1,7 @@
 // Service Worker básico para Orquestador PWA
 // Versión simple: cachea assets estáticos y permite instalación
 
-const CACHE_NAME = "orquestador-v1";
+const CACHE_NAME = "orquestador-v2";
 
 const PRECACHE = [
   "/",
@@ -30,6 +30,11 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   // Solo cacheamos requests GET del mismo origen
   if (event.request.method !== "GET") return;
+
+  // Nunca cacheamos la API: son datos vivos (Páginas, chat, estado del
+  // navegador) y respuestas ligadas a la sesión del usuario.
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith("/api/")) return;
 
   event.respondWith(
     caches.match(event.request).then((cached) => {

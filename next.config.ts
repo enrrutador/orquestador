@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // playwright-core se carga dinámico y solo en el servidor (módulo del
+  // navegador); no debe empaquetarse en el bundle.
+  serverExternalPackages: ["playwright-core"],
   images: {
     remotePatterns: [
       {

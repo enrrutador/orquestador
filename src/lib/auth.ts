@@ -1,6 +1,42 @@
 import { NextAuthOptions } from "next-auth";
 import FacebookProvider from "next-auth/providers/facebook";
 
+const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || "v21.0";
+/** Margen para renovar el token antes de que venza (7 días, en segundos). */
+const REFRESH_MARGIN_SECS = 7 * 24 * 60 * 60;
+
+/**
+ * Etapa 2 — Intercambia un token de usuario de vida corta (~2 h) por uno
+ * de larga duración (~60 días) usando las credenciales de la App de Meta.
+ * Si el intercambio falla, devuelve el token original: el login no se rompe.
+ */
+async function exchangeLongLivedToken(
+  shortToken: string
+): Promise<{ accessToken: string; expiresAt?: number }> {
+  try {
+    const params = new URLSearchParams({
+      grant_type: "fb_exchange_token",
+      client_id: process.env.FACEBOOK_CLIENT_ID || "",
+      client_secret: process.env.FACEBOOK_CLIENT_SECRET || "",
+      fb_exchange_token: shortToken,
+    });
+    const res = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token?${params}`
+    );
+    if (!res.ok) return { accessToken: shortToken };
+    const data = await res.json();
+    if (!data.access_token) return { accessToken: shortToken };
+    return {
+      accessToken: data.access_token,
+      expiresAt: data.expires_in
+        ? Math.floor(Date.now() / 1000) + data.expires_in
+        : undefined,
+    };
+  } catch {
+    return { accessToken: shortToken };
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     FacebookProvider({
@@ -15,10 +51,25 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account }) {
-      // Guardamos el access_token de Facebook en el JWT
-      if (account) {
-        token.accessToken = account.access_token;
-        token.expiresAt = account.expires_at;
+      // Login: guardamos el token ya intercambiado a larga duración.
+      if (account?.access_token) {
+        const long = await exchangeLongLivedToken(account.access_token);
+        token.accessToken = long.accessToken;
+        token.expiresAt = long.expiresAt ?? account.expires_at;
+        return token;
+      }
+      // Sesiones siguientes: si el token está por vencer, se renueva solo
+      // con otro intercambio, sin que el usuario tenga que volver a entrar.
+      if (
+        token.accessToken &&
+        token.expiresAt &&
+        token.expiresAt - Math.floor(Date.now() / 1000) < REFRESH_MARGIN_SECS
+      ) {
+        const renewed = await exchangeLongLivedToken(token.accessToken);
+        if (renewed.accessToken !== token.accessToken) {
+          token.accessToken = renewed.accessToken;
+          token.expiresAt = renewed.expiresAt ?? token.expiresAt;
+        }
       }
       return token;
     },
