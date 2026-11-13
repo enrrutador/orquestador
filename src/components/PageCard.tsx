@@ -26,35 +26,34 @@ export default function PageCard({
   return (
     <div
       className={`
-        relative group rounded-xl border transition-all duration-200 cursor-pointer
+        relative rounded-xl border transition-all duration-150 active:scale-[0.98]
         ${selected
-          ? "border-blue-500 bg-blue-500/10 shadow-lg shadow-blue-500/10"
-          : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-900"
+          ? "border-blue-500/70 bg-blue-500/10"
+          : "border-zinc-800 bg-zinc-900/40 active:bg-zinc-900"
         }
-        ${active ? "ring-2 ring-blue-400 ring-offset-2 ring-offset-zinc-950" : ""}
+        ${active ? "ring-2 ring-blue-400/80 ring-offset-1 ring-offset-zinc-950" : ""}
       `}
       onClick={onToggle}
     >
-      <div className="p-4 flex items-start gap-4">
+      <div className="p-3.5 flex items-center gap-3.5">
         {/* Avatar */}
         <div className="relative flex-shrink-0">
           {pictureUrl ? (
             <Image
               src={pictureUrl}
               alt={name}
-              width={56}
-              height={56}
-              className="rounded-full object-cover border border-zinc-700"
+              width={48}
+              height={48}
+              className="rounded-full object-cover border border-zinc-700/80"
             />
           ) : (
-            <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center text-xl font-bold text-zinc-400">
+            <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center text-lg font-semibold text-zinc-400">
               {name.charAt(0).toUpperCase()}
             </div>
           )}
 
-          {/* Check de selección */}
           {selected && (
-            <div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+            <div className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center border-2 border-zinc-950">
               <Check className="w-3 h-3 text-white" strokeWidth={3} />
             </div>
           )}
@@ -62,27 +61,28 @@ export default function PageCard({
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-zinc-100 truncate">{name}</h3>
+          <h3 className="font-medium text-zinc-100 text-[15px] leading-tight truncate">
+            {name}
+          </h3>
           {category && (
-            <p className="text-sm text-zinc-500 mt-0.5 truncate">{category}</p>
+            <p className="text-xs text-zinc-500 mt-0.5 truncate">{category}</p>
           )}
-
           {active && (
-            <span className="inline-block mt-2 text-xs font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+            <span className="inline-block mt-1.5 text-[11px] font-medium text-blue-400 bg-blue-500/15 px-2 py-0.5 rounded-full">
               Página activa
             </span>
           )}
         </div>
       </div>
 
-      {/* Botón para marcar como activa (solo si está seleccionada) */}
+      {/* Acción secundaria: marcar como activa */}
       {selected && !active && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             onSetActive();
           }}
-          className="absolute bottom-3 right-3 text-xs text-zinc-400 hover:text-blue-400 transition-colors opacity-0 group-hover:opacity-100"
+          className="w-full text-center text-xs text-blue-400/90 active:text-blue-300 py-2 border-t border-zinc-800/80"
         >
           Usar como activa
         </button>
