@@ -25,65 +25,38 @@ Plataforma inteligente para administrar múltiples Páginas de Facebook mediante
 - **PWA** (manifest + service worker)
 - Graph API de Meta
 
-## Cómo arrancar
+## Desplegar en Vercel (recomendado)
 
-### 1. Clonar e instalar
+Guía completa paso a paso (se puede hacer desde el teléfono):
+
+**→ [docs/DESPLIEGUE-VERCEL.md](docs/DESPLIEGUE-VERCEL.md)**
+
+Resumen rápido:
+1. Importá el repo en [vercel.com](https://vercel.com)
+2. Configurá las variables de entorno (`FACEBOOK_CLIENT_ID`, `FACEBOOK_CLIENT_SECRET`, `NEXTAUTH_SECRET`)
+3. Deploy
+4. Agregá la URL de Vercel como Redirect URI en Facebook Login
+5. Abrí la URL en Chrome del teléfono → Instalar aplicación
+
+## Desarrollo local
 
 ```bash
 git clone https://github.com/enrrutador/orquestador.git
 cd orquestador
 npm install
-```
-
-### 2. Crear la App en Meta Developers
-
-1. Andá a [developers.facebook.com](https://developers.facebook.com)
-2. Creá una nueva App → tipo **Business** o **Consumer**
-3. Agregá el producto **Facebook Login**
-4. En **Facebook Login → Settings**:
-   - Valid OAuth Redirect URIs:
-     - `http://localhost:3000/api/auth/callback/facebook`
-     - (más adelante tu dominio de producción)
-5. En **App Review → Permissions and Features** agregá:
-   - `pages_show_list`
-   - `pages_read_engagement` (recomendado)
-6. Anotá el **App ID** y el **App Secret**
-
-### 3. Variables de entorno
-
-```bash
 cp .env.example .env.local
-```
-
-Completá:
-
-```env
-FACEBOOK_CLIENT_ID=tu_app_id
-FACEBOOK_CLIENT_SECRET=tu_app_secret
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=  # generá uno con: openssl rand -base64 32
-```
-
-### 4. Correr en desarrollo
-
-```bash
+# completar variables
 npm run dev
 ```
 
-Abrí [http://localhost:3000](http://localhost:3000)
-
 ## Usar como PWA en Android
 
-1. Desplegá la app (Vercel es ideal)
-2. Abrila en **Chrome** desde el teléfono
-3. Tocá el menú (⋮) → **"Instalar aplicación"** o **"Agregar a la pantalla de inicio"**
-4. Listo. Se abre a pantalla completa como una app nativa
+1. Desplegá en Vercel
+2. Abrí la URL en **Chrome** del teléfono
+3. Menú (⋮) → **Instalar aplicación** / **Agregar a la pantalla de inicio**
+4. Se abre a pantalla completa como una app nativa
 
-> **Nota sobre iconos**: Actualmente hay un icono SVG. Para que Android muestre el ícono correctamente en la pantalla de inicio, generá dos PNG:
-> - `public/icons/icon-192.png` (192×192)
-> - `public/icons/icon-512.png` (512×512)
->
-> Podés usar el SVG de `public/icons/icon.svg` como base.
+> **Iconos**: Todavía falta generar `icon-192.png` y `icon-512.png`. El SVG base está en `public/icons/icon.svg`.
 
 ## Estructura del proyecto
 
@@ -104,9 +77,6 @@ src/
 │   ├── auth.ts
 │   ├── facebook.ts
 │   └── llm/                    # Orquestador (en construcción)
-│       ├── types.ts
-│       ├── index.ts
-│       └── providers/
 └── store/
     └── pages-store.ts
 
