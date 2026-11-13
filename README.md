@@ -2,15 +2,19 @@
 
 Plataforma inteligente para administrar múltiples Páginas de Facebook mediante IA.
 
-## Estado actual – Etapa 1
+## Estado actual
 
-✅ **Completado**
-
+### Etapa 1 – Completada
 - Login con Facebook (OAuth)
 - Detección automática de las Páginas que administrás (`/me/accounts`)
-- Interfaz para ver y seleccionar Páginas
+- Interfaz para ver y seleccionar Páginas (optimizada para móvil)
 - Página activa + selección múltiple
-- Arquitectura modular lista para crecer
+- **PWA lista** para instalar en Android / iOS
+
+### Etapa 3 – En progreso
+- Arquitectura del Orquestador LLM
+- Sistema multi-provider con fallback
+- Tipos y esqueleto listos
 
 ## Stack
 
@@ -18,6 +22,7 @@ Plataforma inteligente para administrar múltiples Páginas de Facebook mediante
 - **NextAuth.js** (Facebook Provider)
 - **Zustand** (estado de Páginas)
 - **Tailwind CSS**
+- **PWA** (manifest + service worker)
 - Graph API de Meta
 
 ## Cómo arrancar
@@ -67,31 +72,54 @@ npm run dev
 
 Abrí [http://localhost:3000](http://localhost:3000)
 
+## Usar como PWA en Android
+
+1. Desplegá la app (Vercel es ideal)
+2. Abrila en **Chrome** desde el teléfono
+3. Tocá el menú (⋮) → **"Instalar aplicación"** o **"Agregar a la pantalla de inicio"**
+4. Listo. Se abre a pantalla completa como una app nativa
+
+> **Nota sobre iconos**: Actualmente hay un icono SVG. Para que Android muestre el ícono correctamente en la pantalla de inicio, generá dos PNG:
+> - `public/icons/icon-192.png` (192×192)
+> - `public/icons/icon-512.png` (512×512)
+>
+> Podés usar el SVG de `public/icons/icon.svg` como base.
+
 ## Estructura del proyecto
 
 ```
 src/
 ├── app/
 │   ├── api/
-│   │   ├── auth/[...nextauth]/   # NextAuth
-│   │   └── pages/                # Endpoint seguro de Páginas
+│   │   ├── auth/[...nextauth]/
+│   │   └── pages/
 │   ├── layout.tsx
 │   └── page.tsx
 ├── components/
-│   ├── Dashboard.tsx             # Pantalla principal
-│   ├── PageCard.tsx              # Card de cada Página
-│   └── Providers.tsx
+│   ├── Dashboard.tsx
+│   ├── PageCard.tsx
+│   ├── Providers.tsx
+│   └── PWARegister.tsx
 ├── lib/
-│   ├── auth.ts                   # Configuración NextAuth + Facebook
-│   └── facebook.ts               # Gestor de Páginas (Graph API)
+│   ├── auth.ts
+│   ├── facebook.ts
+│   └── llm/                    # Orquestador (en construcción)
+│       ├── types.ts
+│       ├── index.ts
+│       └── providers/
 └── store/
-    └── pages-store.ts            # Estado de selección (Zustand)
+    └── pages-store.ts
+
+public/
+├── manifest.json
+├── sw.js
+└── icons/
 ```
 
 ## Próximas etapas
 
-- **Etapa 2**: Mejoras de UI + tokens long-lived + más info de Páginas
-- **Etapa 3**: Orquestador LLM + múltiples proveedores de IA
+- **Etapa 2**: Tokens long-lived + más info de Páginas
+- **Etapa 3**: Orquestador LLM + múltiples proveedores de IA + chat
 - **Etapa 4**: Navegador asistido
 - **Etapa 5+**: Herramientas de interacción, historial, tareas
 
