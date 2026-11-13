@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Providers from "@/components/Providers";
+import PWARegister from "@/components/PWARegister";
 
 export const metadata: Metadata = {
   title: "Orquestador",
@@ -47,7 +48,10 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body className="min-h-screen antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <PWARegister />
+        </Providers>
       </body>
     </html>
   );
