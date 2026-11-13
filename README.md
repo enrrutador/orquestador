@@ -2,6 +2,14 @@
 
 Plataforma inteligente para administrar múltiples Páginas de Facebook mediante IA.
 
+## Modalidad: 100% por navegador
+
+> **Toda la interacción con Facebook se hace por navegador, únicamente.**
+>
+> La API de Meta no se usa para interactuar: no permite interactuar con perfiles y personas en general, y quedó descartada para eso. El login y la detección de Páginas son solo la cáscara; la interacción en sí es navegación.
+>
+> La prueba inicial es que las Páginas comenten los posts del perfil propio. El objetivo es la interacción general con cualquier perfil o persona.
+
 ## Estado actual
 
 ### Etapa 1 – Completada
