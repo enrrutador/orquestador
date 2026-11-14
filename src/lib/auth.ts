@@ -96,7 +96,13 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  // En modo local puro (sin OAuth configurado) no hay login real que
+  // proteger: la sesión es solo del dispositivo. Sin un secreto de
+  // respaldo, NextAuth rompe en producción (NO_SECRET) aunque el modo
+  // local no lo use. Con OAuth configurado, el secreto real es obligatorio.
+  secret:
+    process.env.NEXTAUTH_SECRET ||
+    (isOAuthConfigured() ? undefined : "orquestador-modo-local"),
 };
 
 // Extensiones de tipos para TypeScript

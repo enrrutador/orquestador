@@ -96,27 +96,17 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen bg-zinc-950 pb-16">
         <header className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md sticky top-0 z-20">
-          <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="max-w-6xl mx-auto px-4 h-14 flex items-center">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-blue-600/20 flex items-center justify-center">
                 <Layers className="w-4 h-4 text-blue-400" />
               </div>
               <span className="font-semibold text-zinc-100 text-[15px]">Orquestador</span>
             </div>
-            <span className="text-xs text-zinc-500">Modo local</span>
           </div>
         </header>
 
         <main className="max-w-6xl mx-auto px-4 py-6">
-          <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/25 text-sm leading-relaxed">
-            <p className="font-medium text-blue-100">Modo local por navegador</p>
-            <p className="mt-1 text-blue-200/80">
-              Esta instalación no usa el login por API de Meta: la app trabaja
-              con el navegador de este dispositivo. Su estado está acá abajo,
-              y el Orquestador responde igual.
-            </p>
-          </div>
-
           <BrowserCard />
 
           <Chat selectedPages={[]} activePageId={null} />
