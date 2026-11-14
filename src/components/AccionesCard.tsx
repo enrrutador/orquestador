@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Copy,
   ExternalLink,
+  Play,
   Plus,
   Undo2,
   X,
@@ -53,6 +54,8 @@ export default function AccionesCard() {
   const [acciones, setAcciones] = useState<Accion[]>([]);
   const [copiadoId, setCopiadoId] = useState<string | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [ejecutandoId, setEjecutandoId] = useState<string | null>(null);
+  const [fallos, setFallos] = useState<Record<string, string>>({});
 
   // Formulario de nueva acción
   const [pagina, setPagina] = useState("");
@@ -83,6 +86,39 @@ export default function AccionesCard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ estado }),
     }).catch(() => {});
+    cargar();
+  };
+
+  const ejecutar = async (accion: Accion) => {
+    setEjecutandoId(accion.id);
+    setFallos((f) => {
+      const copia = { ...f };
+      delete copia[accion.id];
+      return copia;
+    });
+    try {
+      const res = await fetch(`/api/asistido/${accion.id}/ejecutar`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFallos((f) => ({
+          ...f,
+          [accion.id]: data.error || "No se pudo ejecutar.",
+        }));
+      } else if (!data.resultado?.ok) {
+        setFallos((f) => ({
+          ...f,
+          [accion.id]: data.resultado?.detalle || "La ejecución falló.",
+        }));
+      }
+    } catch {
+      setFallos((f) => ({
+        ...f,
+        [accion.id]: "No se pudo ejecutar (error de conexión con la app).",
+      }));
+    }
+    setEjecutandoId(null);
     cargar();
   };
 
@@ -139,8 +175,9 @@ export default function AccionesCard() {
       </div>
 
       <p className="text-xs text-zinc-500 mb-4">
-        El Orquestador las prepara acá. Vos las ejecutás: abrís el destino en
-        tu Facebook, pegás el texto y marcás «Hecha».
+        El Orquestador las prepara acá. Con «Ejecutar», la app comenta sola
+        como esa Página, desde su navegador. También podés hacerla a mano:
+        Abrir, Copiar y «Hecha».
       </p>
 
       {mostrarForm && (
@@ -224,7 +261,23 @@ export default function AccionesCard() {
               {a.texto}
             </p>
 
+            {fallos[a.id] && (
+              <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/25 rounded-lg px-2.5 py-2 mt-2">
+                {fallos[a.id]}
+              </p>
+            )}
+
             <div className="flex flex-wrap gap-2 mt-3">
+              {a.destinoUrl && (
+                <button
+                  onClick={() => ejecutar(a)}
+                  disabled={ejecutandoId === a.id}
+                  className="flex items-center gap-1.5 bg-blue-600 active:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium px-3.5 py-2 rounded-lg"
+                >
+                  <Play className="w-4 h-4" />
+                  {ejecutandoId === a.id ? "Ejecutando…" : "Ejecutar"}
+                </button>
+              )}
               {a.destinoUrl && (
                 <a
                   href={a.destinoUrl}

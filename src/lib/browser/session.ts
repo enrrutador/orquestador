@@ -134,6 +134,11 @@ export function isBrowserRunning(): boolean {
   return store.live !== null;
 }
 
+/** Página viva de la sesión (la usa el ejecutor de acciones). */
+export function getLivePage(): Page | null {
+  return store.live?.page ?? null;
+}
+
 export async function startBrowser(manual = true): Promise<BrowserStatus> {
   if (store.live) return getBrowserStatus();
   if (manual) {

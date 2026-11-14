@@ -5,6 +5,7 @@ import {
   listAcciones,
   type TipoAccion,
 } from "@/lib/asistido/store";
+import { comentarComoPagina } from "@/lib/browser/ejecutor";
 
 /**
  * Registro de herramientas del Orquestador.
@@ -134,6 +135,45 @@ registerTool({
     }
     const accion = createAccion({ pagina, tipo, destinoUrl, texto });
     return `Acción preparada y en la cola del panel: ${TIPO_LABEL[accion.tipo]} de «${accion.pagina}» — «${accion.texto}»${accion.destinoUrl ? ` (destino: ${accion.destinoUrl})` : ""}. El usuario la ejecuta desde su navegador.`;
+  },
+});
+
+registerTool({
+  definition: {
+    name: "comentar_como_pagina",
+    description:
+      "EJECUTA un comentario en Facebook como la Página indicada, usando el navegador de la app: abre el post, cambia la identidad a esa Página, escribe el texto, lo envía y verifica que el comentario haya quedado con la Página como autora. Si algo falla (sesión no iniciada, identidad no confirmada, comentario no verificado), devuelve el paso exacto que falló y NO se publica nada a medias. Usala cuando el usuario pida que una o varias Páginas comenten un post concreto: una llamada por cada Página, cada una con un texto distinto y la voz de esa Página. La sesión de Facebook debe estar iniciada en el navegador de la app (el usuario la abre a mano); si la herramienta reporta ese freno, avisale que inicie sesión en la tarjeta del navegador.",
+    parameters: {
+      type: "object",
+      properties: {
+        post_url: {
+          type: "string",
+          description: "Enlace de Facebook al post que se va a comentar.",
+        },
+        pagina: {
+          type: "string",
+          description: "Nombre exacto de la Página que firma el comentario.",
+        },
+        texto: {
+          type: "string",
+          description:
+            "El comentario, redactado con la voz de esa Página. Nunca repitas el mismo texto entre Páginas.",
+        },
+      },
+      required: ["post_url", "pagina", "texto"],
+    },
+  },
+  execute: async (args) => {
+    const postUrl = String(args.post_url || "");
+    const pagina = String(args.pagina || "").trim();
+    const texto = String(args.texto || "").trim();
+    if (!postUrl.startsWith("http") || !pagina || !texto) {
+      return "Error: para comentar necesito el enlace del post, la Página y el texto.";
+    }
+    const r = await comentarComoPagina({ postUrl, pagina, texto });
+    return r.ok
+      ? r.detalle
+      : `No se pudo comentar como «${pagina}» (paso: ${r.paso}). ${r.detalle}`;
   },
 });
 

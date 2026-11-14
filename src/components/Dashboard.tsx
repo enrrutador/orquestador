@@ -4,6 +4,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { useEffect, useState, useMemo } from "react";
 import { usePagesStore } from "@/store/pages-store";
 import PageCard from "./PageCard";
+import BrowserCard from "./BrowserCard";
 import AccionesCard from "./AccionesCard";
 import Chat from "./Chat";
 import {
@@ -107,6 +108,8 @@ export default function Dashboard() {
         </header>
 
         <main className="max-w-6xl mx-auto px-4 py-6">
+          <BrowserCard />
+
           <AccionesCard />
 
           <Chat selectedPages={[]} activePageId={null} />
@@ -280,6 +283,8 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+        <BrowserCard />
+
         <AccionesCard />
 
         <Chat
