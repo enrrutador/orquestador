@@ -79,7 +79,7 @@ export default function Chat({ selectedPages, activePageId }: ChatProps) {
           <p className="text-zinc-500 text-xs">
             {selectedPages.length > 0
               ? `Trabaja sobre ${selectedPages.length} Página${selectedPages.length !== 1 ? "s" : ""} seleccionada${selectedPages.length !== 1 ? "s" : ""}`
-              : "Sin Páginas seleccionadas: seleccionalas arriba para darles contexto"}
+              : "Prepara las acciones; vos las ejecutás desde tu Facebook"}
           </p>
         </div>
       </div>
@@ -88,8 +88,8 @@ export default function Chat({ selectedPages, activePageId }: ChatProps) {
         <div className="max-h-[420px] overflow-y-auto px-4 py-4 space-y-3">
           {messages.length === 0 && (
             <p className="text-sm text-zinc-500 leading-relaxed">
-              Pedile algo al Orquestador: por ejemplo, que liste tus Páginas
-              reales o que consulte el estado del navegador.
+              Pedile algo al Orquestador: por ejemplo, «prepará un comentario
+              de Luna rescata gatos para mi última publicación».
             </p>
           )}
 

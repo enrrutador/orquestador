@@ -1,6 +1,10 @@
 import type { ToolDefinition } from "../types";
 import { getManagedPages } from "@/lib/facebook";
-import { getBrowserStatus } from "@/lib/browser/session";
+import {
+  createAccion,
+  listAcciones,
+  type TipoAccion,
+} from "@/lib/asistido/store";
 
 /**
  * Registro de herramientas del Orquestador.
@@ -73,18 +77,83 @@ registerTool({
 });
 
 // ---------------------------------------------------------------------------
-// Herramienta: estado del navegador (modalidad 100% navegador)
+// Herramientas del MODO ASISTIDO: preparar acciones para la cola
 // ---------------------------------------------------------------------------
+
+const TIPO_LABEL: Record<TipoAccion, string> = {
+  comentario: "Comentario",
+  respuesta: "Respuesta",
+  publicacion: "Publicación",
+};
 
 registerTool({
   definition: {
-    name: "browser_status",
+    name: "preparar_accion",
     description:
-      "Consulta el estado del navegador de la plataforma: si hay una sesión de Facebook guardada, si está conectada, si Facebook pide iniciar sesión o si hay un checkpoint de seguridad pendiente. Usala cuando el usuario pregunte por el navegador o por la conexión.",
+      "Prepara una acción (un comentario, una respuesta o una publicación) y la deja en la cola del panel, lista para que el usuario la ejecute desde su propio navegador: abre el destino en Facebook, pega el texto y la marca hecha. Usala SIEMPRE que el usuario pida comentar, responder o publicar algo: vos redactás el texto con la voz de la Página indicada y lo dejás preparado; nunca digas que lo publicaste vos.",
+    parameters: {
+      type: "object",
+      properties: {
+        pagina: {
+          type: "string",
+          description: "Nombre de la Página o personaje que firma la acción.",
+        },
+        tipo: {
+          type: "string",
+          enum: ["comentario", "respuesta", "publicacion"],
+          description: "Qué clase de acción es.",
+        },
+        destino_url: {
+          type: "string",
+          description:
+            "Enlace de Facebook al post, comentario o perfil donde va la acción (si el usuario lo dio).",
+        },
+        texto: {
+          type: "string",
+          description: "El texto exacto, listo para pegar.",
+        },
+      },
+      required: ["pagina", "tipo", "texto"],
+    },
+  },
+  execute: async (args) => {
+    const pagina = String(args.pagina || "").trim();
+    const texto = String(args.texto || "").trim();
+    const tipo = (["comentario", "respuesta", "publicacion"].includes(
+      String(args.tipo)
+    )
+      ? args.tipo
+      : "comentario") as TipoAccion;
+    const destinoUrl =
+      typeof args.destino_url === "string" &&
+      args.destino_url.startsWith("http")
+        ? args.destino_url
+        : undefined;
+    if (!pagina || !texto) {
+      return "Error: la acción necesita la Página y el texto.";
+    }
+    const accion = createAccion({ pagina, tipo, destinoUrl, texto });
+    return `Acción preparada y en la cola del panel: ${TIPO_LABEL[accion.tipo]} de «${accion.pagina}» — «${accion.texto}»${accion.destinoUrl ? ` (destino: ${accion.destinoUrl})` : ""}. El usuario la ejecuta desde su navegador.`;
+  },
+});
+
+registerTool({
+  definition: {
+    name: "ver_acciones",
+    description:
+      "Muestra la cola de acciones preparadas: cuáles están pendientes de ejecutar y cuáles ya se hicieron. Usala cuando el usuario pregunte qué falta hacer o qué quedó preparado.",
     parameters: { type: "object", properties: {}, required: [] },
   },
   execute: async () => {
-    const status = await getBrowserStatus();
-    return `Estado del navegador: ${status.state}. ${status.detail}`;
+    const acciones = listAcciones();
+    if (acciones.length === 0) {
+      return "La cola está vacía: no hay acciones preparadas.";
+    }
+    return acciones
+      .map(
+        (a) =>
+          `- [${a.estado}] ${TIPO_LABEL[a.tipo]} de «${a.pagina}»: «${a.texto}»`
+      )
+      .join("\n");
   },
 });
