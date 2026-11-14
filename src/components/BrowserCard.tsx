@@ -103,11 +103,12 @@ export default function BrowserCard() {
     }
   };
 
-  // Puntero completo sobre la pantalla: apretar, arrastrar y soltar.
-  // Las comprobaciones de Facebook piden mantener o arrastrar; un clic
-  // simple no alcanza.
-  const pressingRef = useRef(false);
-  const lastMoveRef = useRef(0);
+  // Toque medido en el cliente, ejecutado en una sola operación del
+  // servidor: toque corto = clic; presión larga (≥450 ms) = mantener
+  // apretado en ese punto (las comprobaciones de «mantené presionado»).
+  // Nada de gestos repartidos en varias peticiones: el «soltar» se
+  // perdía con la pantalla refrescándose y el clic nunca existía.
+  const pressStartRef = useRef<{ fx: number; fy: number; at: number } | null>(null);
 
   const fractionsFromEvent = (e: React.PointerEvent<HTMLImageElement>) => {
     const img = imgRef.current;
@@ -119,34 +120,24 @@ export default function BrowserCard() {
     };
   };
 
-  const sendPointer = (action: "down" | "move" | "up", fx: number, fy: number) =>
-    fetch("/api/browser/pointer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, fx, fy }),
-    }).catch(() => {});
-
   const onPointerDown = (e: React.PointerEvent<HTMLImageElement>) => {
     const f = fractionsFromEvent(e);
     if (!f) return;
-    pressingRef.current = true;
-    imgRef.current?.setPointerCapture(e.pointerId);
-    sendPointer("down", f.fx, f.fy);
-  };
-
-  const onPointerMove = (e: React.PointerEvent<HTMLImageElement>) => {
-    if (!pressingRef.current) return;
-    const now = Date.now();
-    if (now - lastMoveRef.current < 80) return;
-    lastMoveRef.current = now;
-    const f = fractionsFromEvent(e);
-    if (f) sendPointer("move", f.fx, f.fy);
+    pressStartRef.current = { ...f, at: Date.now() };
   };
 
   const onPointerUp = async (e: React.PointerEvent<HTMLImageElement>) => {
-    pressingRef.current = false;
-    const f = fractionsFromEvent(e);
-    if (f) await sendPointer("up", f.fx, f.fy);
+    const start = pressStartRef.current;
+    pressStartRef.current = null;
+    const f = fractionsFromEvent(e) || start;
+    if (!f) return;
+    const held = start ? Date.now() - start.at : 0;
+    const route = held >= 450 ? "/api/browser/hold" : "/api/browser/tap";
+    await fetch(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fx: f.fx, fy: f.fy }),
+    }).catch(() => {});
     refreshShotSoon();
     setTimeout(fetchStatus, 1200);
   };
@@ -233,14 +224,13 @@ export default function BrowserCard() {
               src={`/api/browser/screenshot?t=${shotTick}`}
               alt="Pantalla del navegador"
               onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onError={fetchStatus}
               className="w-full max-w-[412px] mx-auto rounded-xl border border-zinc-800 cursor-pointer select-none touch-none"
               draggable={false}
             />
             <p className="text-xs text-zinc-500 mt-2 text-center">
-              Tocá, mantené apretado o arrastrá sobre la pantalla.
+              Tocá para hacer clic. Dejá el dedo apoyado para «mantener presionado».
             </p>
 
             <div className="flex gap-2 mt-3">

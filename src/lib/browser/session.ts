@@ -145,6 +145,23 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     };
   }
 
+  // Limpieza previa en Termux: si una corrida anterior dejó un Chromium
+  // huérfano (el servidor se frenó con Ctrl+C y el navegador hijo quedó
+  // vivo), ese proceso retiene el perfil y cualquier reapertura muere en
+  // silencio. Sin sesión viva propia, cualquier chromium-browser que
+  // ande suelto en el teléfono es un huérfano de esta app: se lo baja.
+  if (!store.live && (process.env.PREFIX || process.platform === "android")) {
+    try {
+      const { execFile } = await import("child_process");
+      await new Promise<void>((resolve) => {
+        execFile("pkill", ["-f", "chromium-browser"], () => resolve());
+      });
+      await new Promise((r) => setTimeout(r, 600));
+    } catch {
+      /* sin pkill o sin procesos: se sigue igual */
+    }
+  }
+
   const { chromium } = await import("playwright-core");
   const context = await chromium.launchPersistentContext(getProfileDir(), {
     executablePath: executable || undefined,
@@ -299,6 +316,80 @@ export async function browserKey(key: string): Promise<void> {
   await store.live.page.waitForTimeout(500);
 }
 
+async function getCdp(): Promise<import("playwright-core").CDPSession | null> {
+  if (!store.live) return null;
+  if (!store.live.cdp) {
+    store.live.cdp = await store.live.context.newCDPSession(store.live.page);
+  }
+  return store.live.cdp;
+}
+
+async function dispatchTouch(
+  type: "touchStart" | "touchMove" | "touchEnd",
+  x?: number,
+  y?: number
+): Promise<boolean> {
+  const cdp = await getCdp().catch(() => null);
+  if (!cdp) return false;
+  try {
+    await cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: type === "touchEnd" ? [] : [{ x: x ?? 0, y: y ?? 0, id: 1 }],
+    });
+    return true;
+  } catch {
+    if (store.live) store.live.cdp = undefined;
+    return false;
+  }
+}
+
+/**
+ * Toque completo en UNA sola operación: apretar y soltar salen juntos
+ * del servidor, sin depender de que el «soltar» del cliente llegue en
+ * otra petición (con la pantalla refrescándose, ese segundo evento se
+ * perdía y el clic nunca existía). Si el toque por CDP falla, cae al
+ * clic de Playwright en el mismo acto.
+ */
+export async function browserTap(fx: number, fy: number): Promise<void> {
+  if (!store.live) return;
+  const x = Math.round(fx * VIEWPORT.width);
+  const y = Math.round(fy * VIEWPORT.height);
+  const started = await dispatchTouch("touchStart", x, y);
+  if (started) {
+    await store.live.page.waitForTimeout(90);
+    await dispatchTouch("touchEnd");
+    await store.live.page.waitForTimeout(500);
+    return;
+  }
+  await store.live.page.mouse.click(x, y).catch(() => {});
+}
+
+/**
+ * Mantener apretado en un punto, en una sola operación (para las
+ * comprobaciones de «mantené presionado»): el servidor sostiene el
+ * toque la duración indicada y suelta.
+ */
+export async function browserHold(
+  fx: number,
+  fy: number,
+  ms = 3500
+): Promise<void> {
+  if (!store.live) return;
+  const x = Math.round(fx * VIEWPORT.width);
+  const y = Math.round(fy * VIEWPORT.height);
+  const started = await dispatchTouch("touchStart", x, y);
+  if (started) {
+    await store.live.page.waitForTimeout(ms);
+    await dispatchTouch("touchEnd");
+    await store.live.page.waitForTimeout(500);
+    return;
+  }
+  await store.live.page.mouse.move(x, y).catch(() => {});
+  await store.live.page.mouse.down().catch(() => {});
+  await store.live.page.waitForTimeout(ms);
+  await store.live.page.mouse.up().catch(() => {});
+}
+
 // ============================================================
 // Estado
 // ============================================================
@@ -313,16 +404,10 @@ async function liveStatus(): Promise<BrowserStatus> {
     .catch(() => []);
   const hasUserCookie = cookies.some((c) => c.name === "c_user");
 
-  let checkpoint = url.includes("/checkpoint");
-  if (!checkpoint && !hasUserCookie) {
-    const bodyText = await page
-      .locator("body")
-      .innerText()
-      .catch(() => "");
-    checkpoint =
-      bodyText.includes("persona real") ||
-      bodyText.toLowerCase().includes("checkpoint");
-  }
+  // Solo URL y cookies: leer el texto completo del cuerpo obligaba a
+  // recorrer todo el DOM de la página más pesada de Facebook cada pocos
+  // segundos, justo cuando el navegador del teléfono menos resto tiene.
+  const checkpoint = url.includes("/checkpoint");
 
   if (checkpoint) {
     return {
