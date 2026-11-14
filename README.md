@@ -74,7 +74,7 @@ Resumen:
 
 Guía completa: **[docs/LOCAL-ANDROID.md](docs/LOCAL-ANDROID.md)**
 
-La app corre dentro del teléfono (Termux + un entorno Debian interno) y se usa desde el Chrome del mismo teléfono, en `http://localhost:3000`. Hay scripts de instalación y arranque en `scripts/android/`.
+La app corre dentro del teléfono (Termux, todo nativo de Android: su Node.js y su Chromium) y se usa desde el navegador del mismo teléfono, en `http://localhost:3000`. Hay scripts de instalación y arranque en `scripts/android/`.
 
 ### PWA en el teléfono
 

@@ -42,6 +42,10 @@ export function getStatePath(): string {
 function findChromium(): string | null {
   const candidates = [
     process.env.BROWSER_EXECUTABLE_PATH,
+    // Termux nativo (Android local): Chromium del repo x11 de Termux.
+    // OJO: el ejecutable se llama "chromium-browser", no "chromium".
+    "/data/data/com.termux/files/usr/bin/chromium-browser",
+    "/data/data/com.termux/files/usr/bin/chromium",
     // Linux / Debian (incluye el Debian interno de Android local)
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
@@ -98,6 +102,9 @@ export async function getBrowserStatus(): Promise<BrowserStatus> {
       : await chromium.launch({
           executablePath: executable || undefined,
           headless: true,
+          // Sin sandbox: en Termux y entornos sin namespaces el sandbox de
+          // Chromium no puede arrancar; es el modo verificado en el teléfono.
+          args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
         });
 
     try {

@@ -1,46 +1,65 @@
 # Orquestador en un teléfono Android (local)
 
-La app corre **dentro del teléfono**, sin servidores externos: un entorno
-Linux en el dispositivo (Termux + Debian interno) levanta la app y su
-navegador, y la usás desde el Chrome del mismo teléfono.
+La app corre **dentro del teléfono**, sin servidores externos y sin
+entornos emulados: Termux levanta la app y su navegador, todo nativo de
+Android, y la usás desde el navegador del mismo teléfono.
 
 ## Cómo está armado
 
 ```
 Teléfono Android
-└── Termux (la puerta de entrada)
-    └── Debian interno (proot-distro)
-        ├── Node.js → la app en http://localhost:3000
-        └── Chromium → el navegador de la plataforma
+└── Termux (todo nativo, compilado para Android)
+    ├── Node.js → la app en http://localhost:3000
+    └── Chromium → el navegador de la plataforma
 ```
 
 Todo vive en el teléfono: el código, la sesión de Facebook y los datos.
 
+**Por qué no un Linux interno (Debian/proot):** en teléfonos ARM de
+32 bits, el motor JavaScript (V8) muere al ejecutar cualquier código
+dentro de proot — probado con el Node de Debian y con el Node oficial.
+La ruta nativa de Termux no tiene ese problema y quedó verificada de
+punta a punta en un teléfono ARM de 32 bits (Node 26 + Chromium 157).
+
 ## Requisitos
 
 - Un teléfono Android con espacio libre (la primera instalación descarga
-  varios cientos de MB entre Debian, Node y Chromium).
+  varios cientos de MB entre Node, Chromium y las dependencias).
 - **Termux** instalado desde F-Droid o desde el GitHub de Termux
   (la versión de Play Store está abandonada, no sirve).
 - Conexión Wi-Fi para la primera instalación.
 
 ## Instalación (una sola vez)
 
-1. Abrí Termux y pegá:
+En Termux, **pegá los comandos de a uno** y esperá que cada uno termine
+antes de pegar el siguiente (pegar bloques enteros puede mezclar los
+comandos en la terminal):
 
 ```bash
-pkg update -y && pkg install -y git curl
+pkg install -y git
 git clone https://github.com/enrrutador/orquestador.git
 cd orquestador
 bash scripts/android/instalar.sh
 ```
 
-El script instala el Debian interno con Node.js y Chromium, y deja la app
-instalada adentro.
+El script instala el Node.js de Termux y el Chromium del repo gráfico
+(x11) de Termux, instala las dependencias del proyecto y deja creada la
+configuración inicial.
 
-2. Configuración: dentro de la carpeta del proyecto, creá `.env.local` con
-la clave de tu proveedor de IA (ver `.env.example`). Las variables de
-Facebook **no hacen falta**: el modo principal es el navegador.
+Notas de la instalación:
+
+- Si Termux avisa que no tiene espejo de descarga elegido, el propio
+  `pkg` prueba los espejos y elige uno automáticamente; dejalo correr.
+- El ejecutable de Chromium se llama **`chromium-browser`** (no
+  `chromium`); la app ya lo busca con ese nombre.
+- La compilación de la app (`npm run build`) usa el compilador SWC en
+  WASM (`@next/swc-wasm-nodejs`, ya incluido en el proyecto): el SWC
+  nativo para Android ARM no se publica desde Next 13. Es más lento que
+  el nativo, pero compila: ~84 s en un ARM de 32 bits.
+
+Configuración: en la carpeta del proyecto, cargá tu clave del proveedor
+de IA en `.env.local` (ver `.env.example`). Las variables de Facebook
+**no hacen falta**: el modo principal es el navegador.
 
 ## Uso diario
 
@@ -51,8 +70,8 @@ cd ~/orquestador
 bash scripts/android/iniciar.sh
 ```
 
-Eso mantiene el teléfono despierto para la app y la levanta adentro del
-Debian. Después abrí **Chrome** en el mismo teléfono y entrá a
+Eso mantiene el teléfono despierto para la app y la levanta. Después
+abrí el **navegador** del mismo teléfono y entrá a
 `http://localhost:3000`. Desde el menú (⋮) podés **Instalar aplicación**
 para tenerla como una app más.
 
