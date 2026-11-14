@@ -99,18 +99,52 @@ export default function BrowserCard() {
     }
   };
 
-  const onTapScreen = async (e: React.MouseEvent<HTMLImageElement>) => {
+  // Puntero completo sobre la pantalla: apretar, arrastrar y soltar.
+  // Las comprobaciones de Facebook piden mantener o arrastrar; un clic
+  // simple no alcanza.
+  const pressingRef = useRef(false);
+  const lastMoveRef = useRef(0);
+
+  const fractionsFromEvent = (e: React.PointerEvent<HTMLImageElement>) => {
     const img = imgRef.current;
-    if (!img) return;
+    if (!img) return null;
     const rect = img.getBoundingClientRect();
-    const fx = (e.clientX - rect.left) / rect.width;
-    const fy = (e.clientY - rect.top) / rect.height;
-    await fetch("/api/browser/click", {
+    return {
+      fx: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+      fy: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+    };
+  };
+
+  const sendPointer = (action: "down" | "move" | "up", fx: number, fy: number) =>
+    fetch("/api/browser/pointer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fx, fy }),
+      body: JSON.stringify({ action, fx, fy }),
     }).catch(() => {});
+
+  const onPointerDown = (e: React.PointerEvent<HTMLImageElement>) => {
+    const f = fractionsFromEvent(e);
+    if (!f) return;
+    pressingRef.current = true;
+    imgRef.current?.setPointerCapture(e.pointerId);
+    sendPointer("down", f.fx, f.fy);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLImageElement>) => {
+    if (!pressingRef.current) return;
+    const now = Date.now();
+    if (now - lastMoveRef.current < 80) return;
+    lastMoveRef.current = now;
+    const f = fractionsFromEvent(e);
+    if (f) sendPointer("move", f.fx, f.fy);
+  };
+
+  const onPointerUp = async (e: React.PointerEvent<HTMLImageElement>) => {
+    pressingRef.current = false;
+    const f = fractionsFromEvent(e);
+    if (f) await sendPointer("up", f.fx, f.fy);
     refreshShotSoon();
+    setTimeout(fetchStatus, 1200);
   };
 
   const sendText = async () => {
@@ -194,12 +228,15 @@ export default function BrowserCard() {
               ref={imgRef}
               src={`/api/browser/screenshot?t=${shotTick}`}
               alt="Pantalla del navegador"
-              onClick={onTapScreen}
-              className="w-full max-w-[412px] mx-auto rounded-xl border border-zinc-800 cursor-pointer select-none"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onError={fetchStatus}
+              className="w-full max-w-[412px] mx-auto rounded-xl border border-zinc-800 cursor-pointer select-none touch-none"
               draggable={false}
             />
             <p className="text-xs text-zinc-500 mt-2 text-center">
-              Tocá la pantalla para hacer clic donde quieras.
+              Tocá, mantené apretado o arrastrá sobre la pantalla.
             </p>
 
             <div className="flex gap-2 mt-3">

@@ -135,7 +135,10 @@ export async function startBrowser(): Promise<BrowserStatus> {
     executablePath: executable || undefined,
     headless: true,
     viewport: VIEWPORT,
-    deviceScaleFactor: 2,
+    // Escala 1 (no 2): en el teléfono de 32 bits cada captura y cada
+    // repintado pesan la cuarta parte, y Chromium aguanta mejor las
+    // páginas pesadas de comprobación de Facebook.
+    deviceScaleFactor: 1,
     hasTouch: true,
     isMobile: true,
     userAgent:
@@ -170,7 +173,36 @@ export async function stopBrowser(): Promise<void> {
 
 export async function browserScreenshot(): Promise<Buffer | null> {
   if (!store.live) return null;
-  return store.live.page.screenshot({ type: "png" });
+  // JPEG calidad 80: mucho más liviano que el PNG para capturar seguido en
+  // un teléfono débil, y con nitidez suficiente para leer un captcha
+  // (lección de Pulse OS: con calidad baja el captcha no se distinguía).
+  return store.live.page.screenshot({ type: "jpeg", quality: 80 });
+}
+
+/**
+ * Puntero completo (apretar / mover / soltar) sobre la pantalla del
+ * navegador. Es lo que permite interactuar con las comprobaciones de
+ * Facebook: hay desafíos que piden mantener apretado o arrastrar, y un
+ * clic simple no alcanza.
+ */
+export async function browserPointer(
+  action: "down" | "move" | "up",
+  fx: number,
+  fy: number
+): Promise<void> {
+  if (!store.live) return;
+  const { page } = store.live;
+  const x = fx * VIEWPORT.width;
+  const y = fy * VIEWPORT.height;
+  if (action === "down") {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+  } else if (action === "move") {
+    await page.mouse.move(x, y, { steps: 5 });
+  } else {
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+  }
 }
 
 export async function browserClick(fx: number, fy: number): Promise<void> {

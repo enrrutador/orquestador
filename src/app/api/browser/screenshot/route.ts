@@ -11,7 +11,7 @@ export async function GET() {
   }
   return new NextResponse(new Uint8Array(png), {
     headers: {
-      "Content-Type": "image/png",
+      "Content-Type": "image/jpeg",
       "Cache-Control": "no-store",
     },
   });
