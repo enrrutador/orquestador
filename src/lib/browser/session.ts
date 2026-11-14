@@ -99,13 +99,24 @@ function findChromium(): string | null {
 interface LiveSession {
   context: BrowserContext;
   page: Page;
+  cdp?: import("playwright-core").CDPSession;
 }
 
 const globalRef = globalThis as unknown as {
-  __orquestadorBrowser?: { live: LiveSession | null };
+  __orquestadorBrowser?: {
+    live: LiveSession | null;
+    /** true cuando el cierre lo pidió el usuario (no reabrir solo). */
+    stopRequested: boolean;
+    /** Reaperturas automáticas seguidas; frena bucles de cierres. */
+    relaunchCount: number;
+  };
 };
 if (!globalRef.__orquestadorBrowser) {
-  globalRef.__orquestadorBrowser = { live: null };
+  globalRef.__orquestadorBrowser = {
+    live: null,
+    stopRequested: false,
+    relaunchCount: 0,
+  };
 }
 const store = globalRef.__orquestadorBrowser;
 
@@ -115,8 +126,12 @@ export function isBrowserRunning(): boolean {
   return store.live !== null;
 }
 
-export async function startBrowser(): Promise<BrowserStatus> {
+export async function startBrowser(manual = true): Promise<BrowserStatus> {
   if (store.live) return getBrowserStatus();
+  if (manual) {
+    store.stopRequested = false;
+    store.relaunchCount = 0;
+  }
 
   const executable = findChromium();
   if (!executable && !process.env.BROWSER_CDP_URL) {
@@ -145,13 +160,35 @@ export async function startBrowser(): Promise<BrowserStatus> {
       "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
     // Sin sandbox: en Termux el sandbox de Chromium no puede arrancar;
     // es el modo verificado en el teléfono.
-    args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+    args: [
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      // WebGL desactivado: las comprobaciones de Facebook lo usan para
+      // huellas del equipo y en este Chromium de 32 bits corre por
+      // software (SwiftShader), que es el sospechoso de los cierres
+      // repentinos del navegador en plena comprobación (crashpad a los
+      // ~85 s en dos corridas seguidas). Sin WebGL esa vía de cierre
+      // desaparece; la comprobación sigue cargando.
+      "--disable-webgl",
+      "--disable-webgl2",
+    ],
   });
 
   const page = context.pages()[0] || (await context.newPage());
   store.live = { context, page };
   context.on("close", () => {
     if (store.live?.context === context) store.live = null;
+    // Cierre inesperado (Chromium se cae en el teléfono con las páginas
+    // pesadas de comprobación): se reabre solo y vuelve a Facebook. El
+    // perfil guarda la sesión, así que retoma donde estaba — incluso a
+    // mitad de una comprobación. Con tope para no entrar en bucle.
+    if (!store.stopRequested && store.relaunchCount < 6) {
+      store.relaunchCount++;
+      setTimeout(() => {
+        startBrowser(false).catch(() => {});
+      }, 1500);
+    }
   });
 
   await page
@@ -165,6 +202,7 @@ export async function startBrowser(): Promise<BrowserStatus> {
 }
 
 export async function stopBrowser(): Promise<void> {
+  store.stopRequested = true;
   if (!store.live) return;
   const { context } = store.live;
   store.live = null;
@@ -173,17 +211,31 @@ export async function stopBrowser(): Promise<void> {
 
 export async function browserScreenshot(): Promise<Buffer | null> {
   if (!store.live) return null;
+  if (store.live.page.isClosed()) {
+    // La página murió pero el contexto sigue: se fuerza el cierre para
+    // que el manejador reabra el navegador solo.
+    const { context } = store.live;
+    store.live = null;
+    context.close().catch(() => {});
+    return null;
+  }
   // JPEG calidad 80: mucho más liviano que el PNG para capturar seguido en
   // un teléfono débil, y con nitidez suficiente para leer un captcha
   // (lección de Pulse OS: con calidad baja el captcha no se distinguía).
-  return store.live.page.screenshot({ type: "jpeg", quality: 80 });
+  return store.live.page
+    .screenshot({ type: "jpeg", quality: 80 })
+    .catch(() => null);
 }
 
 /**
  * Puntero completo (apretar / mover / soltar) sobre la pantalla del
- * navegador. Es lo que permite interactuar con las comprobaciones de
- * Facebook: hay desafíos que piden mantener apretado o arrastrar, y un
- * clic simple no alcanza.
+ * navegador, como TOQUE real por CDP (Input.dispatchTouchEvent).
+ *
+ * Con la emulación móvil activa, los eventos de mouse de Playwright no
+ * siempre producen el clic: la página (y los iframes de comprobación de
+ * Facebook) esperan toques. El toque por CDP es el mismo evento que
+ * genera un dedo y además habilita mantener apretado y arrastrar, que
+ * es lo que piden esos desafíos.
  */
 export async function browserPointer(
   action: "down" | "move" | "up",
@@ -191,17 +243,41 @@ export async function browserPointer(
   fy: number
 ): Promise<void> {
   if (!store.live) return;
-  const { page } = store.live;
-  const x = fx * VIEWPORT.width;
-  const y = fy * VIEWPORT.height;
-  if (action === "down") {
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-  } else if (action === "move") {
-    await page.mouse.move(x, y, { steps: 5 });
-  } else {
-    await page.mouse.up();
-    await page.waitForTimeout(500);
+  const live = store.live;
+  const x = Math.round(fx * VIEWPORT.width);
+  const y = Math.round(fy * VIEWPORT.height);
+  try {
+    if (!live.cdp) {
+      live.cdp = await live.context.newCDPSession(live.page);
+    }
+    const type =
+      action === "down"
+        ? "touchStart"
+        : action === "move"
+          ? "touchMove"
+          : "touchEnd";
+    await live.cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: action === "up" ? [] : [{ x, y, id: 1 }],
+    });
+    if (action === "up") {
+      await live.page.waitForTimeout(500);
+    }
+  } catch {
+    // Si el toque por CDP falla (o el navegador se cerró a mitad de
+    // camino), se intenta con el mouse clásico antes de rendirse.
+    try {
+      if (action === "down") {
+        await live.page.mouse.move(x, y);
+        await live.page.mouse.down();
+      } else if (action === "move") {
+        await live.page.mouse.move(x, y, { steps: 5 });
+      } else {
+        await live.page.mouse.up();
+      }
+    } catch {
+      /* el navegador se cerró; la reapertura automática se encarga */
+    }
   }
 }
 

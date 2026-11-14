@@ -57,16 +57,20 @@ export default function BrowserCard() {
 
   const running = Boolean(status?.running);
 
-  // Mientras el navegador está abierto: pantalla y estado se actualizan solos.
+  // El estado se consulta siempre: si el navegador se cierra solo, el
+  // servidor lo reabre y esta tarjeta vuelve a mostrar la pantalla sin
+  // que haya que tocar nada.
+  useEffect(() => {
+    const st = setInterval(fetchStatus, 5000);
+    return () => clearInterval(st);
+  }, [fetchStatus]);
+
+  // Mientras el navegador está abierto: la pantalla se actualiza sola.
   useEffect(() => {
     if (!running) return;
-    const shot = setInterval(() => setShotTick((t) => t + 1), 2500);
-    const st = setInterval(fetchStatus, 6000);
-    return () => {
-      clearInterval(shot);
-      clearInterval(st);
-    };
-  }, [running, fetchStatus]);
+    const shot = setInterval(() => setShotTick((t) => t + 1), 1200);
+    return () => clearInterval(shot);
+  }, [running]);
 
   const refreshShotSoon = () => {
     setTimeout(() => setShotTick((t) => t + 1), 400);
