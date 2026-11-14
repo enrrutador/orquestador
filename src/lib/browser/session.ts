@@ -2,6 +2,23 @@ import { existsSync } from "fs";
 import path from "path";
 import type { BrowserContext, Page } from "playwright-core";
 
+// Termux/Android: el Node de Termux reporta process.platform === "android"
+// y Playwright solo conoce linux/darwin/win32 al calcular su carpeta de
+// registro: sin PLAYWRIGHT_BROWSERS_PATH definido, cualquier lanzamiento
+// muere con «Unsupported platform: android» aunque se le pase el ejecutable
+// (verificado por reproducción local, 2026-11-14). Se fija una carpeta
+// propia dentro de .data antes de que Playwright se importe y la lea.
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(
+    process.cwd(),
+    ".data",
+    "ms-playwright"
+  );
+}
+if (!process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS) {
+  process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
+}
+
 /**
  * Navegador de la app — modalidad 100% navegador.
  *
