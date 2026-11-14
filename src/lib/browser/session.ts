@@ -100,6 +100,14 @@ interface LiveSession {
   context: BrowserContext;
   page: Page;
   cdp?: import("playwright-core").CDPSession;
+  /**
+   * true si el navegador es EXTERNO y visible (Termux:X11): la app se
+   * conectó por CDP a una ventana que maneja el usuario con el dedo.
+   * En ese modo la app no lo abre ni lo cierra: solo se conecta.
+   */
+  external?: boolean;
+  /** Conexión CDP a soltar al desconectar (solo modo externo). */
+  browser?: import("playwright-core").Browser;
 }
 
 const globalRef = globalThis as unknown as {
@@ -131,6 +139,35 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
   if (manual) {
     store.stopRequested = false;
     store.relaunchCount = 0;
+  }
+
+  // Modo navegador VISIBLE (Termux:X11): si hay una URL de CDP
+  // configurada, la app se conecta al Chromium que el usuario abrió en
+  // su ventana y maneja con el dedo — sin intermediarios entre su mano
+  // y la página. La sesión vive en el perfil de esa ventana.
+  const cdpUrl = process.env.BROWSER_CDP_URL;
+  if (cdpUrl) {
+    try {
+      const { chromium } = await import("playwright-core");
+      const browser = await chromium.connectOverCDP(cdpUrl);
+      const context = browser.contexts()[0];
+      const page = context.pages()[0] || (await context.newPage());
+      store.live = { context, page, external: true, browser };
+      browser.on("disconnected", () => {
+        if (store.live?.browser === browser) store.live = null;
+      });
+      return getBrowserStatus();
+    } catch {
+      return {
+        state: "no-verificable",
+        detail:
+          "No se encontró el navegador visible. Abrilo primero con scripts/android/navegador-visible.sh y después conectá.",
+        browserAvailable: false,
+        hasSavedSession: existsSync(getProfileDir()),
+        running: false,
+        checkedAt: new Date().toISOString(),
+      };
+    }
   }
 
   const executable = findChromium();
@@ -221,9 +258,15 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
 export async function stopBrowser(): Promise<void> {
   store.stopRequested = true;
   if (!store.live) return;
-  const { context } = store.live;
+  const live = store.live;
   store.live = null;
-  await context.close().catch(() => {});
+  if (live.external) {
+    // Navegador visible del usuario: la app solo se desconecta; la
+    // ventana sigue abierta y es de él.
+    await live.browser?.close().catch(() => {});
+    return;
+  }
+  await live.context.close().catch(() => {});
 }
 
 export async function browserScreenshot(): Promise<Buffer | null> {
@@ -301,7 +344,8 @@ export async function browserPointer(
 export async function browserClick(fx: number, fy: number): Promise<void> {
   if (!store.live) return;
   const { page } = store.live;
-  await page.mouse.click(fx * VIEWPORT.width, fy * VIEWPORT.height);
+  const size = await pageSize();
+  await page.mouse.click(fx * size.width, fy * size.height);
   await page.waitForTimeout(700);
 }
 
@@ -350,10 +394,35 @@ async function dispatchTouch(
  * perdía y el clic nunca existía). Si el toque por CDP falla, cae al
  * clic de Playwright en el mismo acto.
  */
+/**
+ * Tamaño REAL de la página. En el navegador lanzado por la app es el
+ * viewport fijado; en el navegador externo (visible) viewportSize()
+ * viene vacío y hay que medir la ventana misma — asumir 412×915 ahí
+ * desplazaba todos los toques (verificado: el botón grande entraba de
+ * suerte y la casilla chica erraba por 45 px).
+ */
+async function pageSize(): Promise<{ width: number; height: number }> {
+  const page = store.live?.page;
+  if (!page) return VIEWPORT;
+  const vs = page.viewportSize();
+  if (vs) return vs;
+  try {
+    const size = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    if (size.width > 0 && size.height > 0) return size;
+  } catch {
+    /* página en transición: se usa el tamaño por defecto */
+  }
+  return VIEWPORT;
+}
+
 export async function browserTap(fx: number, fy: number): Promise<void> {
   if (!store.live) return;
-  const x = Math.round(fx * VIEWPORT.width);
-  const y = Math.round(fy * VIEWPORT.height);
+  const size = await pageSize();
+  const x = Math.round(fx * size.width);
+  const y = Math.round(fy * size.height);
   const started = await dispatchTouch("touchStart", x, y);
   if (started) {
     await store.live.page.waitForTimeout(90);
@@ -375,8 +444,9 @@ export async function browserHold(
   ms = 3500
 ): Promise<void> {
   if (!store.live) return;
-  const x = Math.round(fx * VIEWPORT.width);
-  const y = Math.round(fy * VIEWPORT.height);
+  const size = await pageSize();
+  const x = Math.round(fx * size.width);
+  const y = Math.round(fy * size.height);
   const started = await dispatchTouch("touchStart", x, y);
   if (started) {
     await store.live.page.waitForTimeout(ms);
