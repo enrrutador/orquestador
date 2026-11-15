@@ -204,6 +204,28 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     }
   }
 
+  // Candado de perfil vencido: cuando Chromium muere de golpe (la página
+  // de comprobación de Facebook lo cierra en el teléfono), deja en el
+  // perfil los archivos Singleton*, y el próximo lanzamiento aborta con
+  // «Failed to create a ProcessSingleton... Aborting now to avoid
+  // profile corruption» (exitCode 21, verificado 2026-11-14). Sin sesión
+  // viva propia, esos archivos son de un proceso muerto: se borran antes
+  // de lanzar para que la app se recupere sola de un cierre brusco.
+  if (!store.live) {
+    try {
+      const { rmSync } = await import("fs");
+      for (const name of [
+        "SingletonLock",
+        "SingletonCookie",
+        "SingletonSocket",
+      ]) {
+        rmSync(path.join(getProfileDir(), name), { force: true });
+      }
+    } catch {
+      /* si no se puede limpiar, el lanzamiento dará su propio error */
+    }
+  }
+
   const { chromium } = await import("playwright-core");
   const context = await chromium.launchPersistentContext(getProfileDir(), {
     executablePath: executable || undefined,
@@ -223,6 +245,22 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
       "--no-sandbox",
       "--disable-gpu",
       "--disable-dev-shm-usage",
+      // Modo de memoria baja (BROWSER_LOW_MEMORY=1), para teléfonos de
+      // 32 bits con poca RAM: un solo proceso (sin procesos hijos que
+      // Android mate por separado con su low-memory-killer), sin zygote
+      // y heap de JavaScript acotado. Es el conjunto de flags estándar
+      // para Chromium en entornos débiles; se activa por entorno para
+      // poder probarlo sin tocar el modo normal.
+      ...(process.env.BROWSER_LOW_MEMORY === "1"
+        ? [
+            "--single-process",
+            "--no-zygote",
+            "--renderer-process-limit=1",
+            "--js-flags=--max-old-space-size=128",
+            "--disable-extensions",
+            "--mute-audio",
+          ]
+        : []),
       // WebGL desactivado: las comprobaciones de Facebook lo usan para
       // huellas del equipo y en este Chromium de 32 bits corre por
       // software (SwiftShader), que es el sospechoso de los cierres
