@@ -141,10 +141,10 @@ export function sampleMemory(): {
         const cmd = readFileSync(`/proc/${ent}/cmdline`, "utf8");
         if (!cmd.includes("chromium")) continue;
         const mt = cmd.match(/--type=([a-z-]+)/);
-        const tipo = cmd.includes("crashpad")
-          ? "crashpad"
-          : mt
-            ? mt[1]
+        const tipo = mt
+          ? mt[1]
+          : cmd.includes("crashpad_handler")
+            ? "crashpad"
             : "navegador";
         tipos[tipo] = (tipos[tipo] ?? 0) + 1;
         const vm = readFileSync(`/proc/${ent}/status`, "utf8").match(
@@ -384,14 +384,24 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
             "--disable-software-rasterizer",
           ]
         : []),
+      // Modo suave (BROWSER_SUAVE=1): la muerte llega ~2 s después de
+      // que Chromium levanta un proceso nuevo para la comprobación
+      // (el iframe cruzado de la verificación, con aislamiento de
+      // sitio). Este modo achica el modelo de procesos — sin zygote
+      // (cada hijo arranca limpio), un solo renderizador y agrupado
+      // por sitio — para que la comprobación reuse el proceso
+      // existente en vez de estrenar uno. Se activa por entorno:
+      // se prueba sin recompilar.
+      ...(process.env.BROWSER_SUAVE === "1"
+        ? ["--no-zygote", "--renderer-process-limit=1", "--process-per-site"]
+        : []),
       // Con diagnóstico activo, Chromium deja su propio registro en
-      // .data/chromium.log (errores nativos, crashpad, GPU).
+      // .data/chromium.log (errores nativos, crashpad, GPU). OJO:
+      // "--enable-logging=file" NO es válido en la compilación de
+      // Termux (verificado 2026-11-15: "Invalid logging destination");
+      // quedan --log-file/--log-level, inertes ahí pero válidos en PC.
       ...(process.env.BROWSER_DEBUG === "1"
-        ? [
-            "--enable-logging=file",
-            `--log-file=${getChromiumLogPath()}`,
-            "--log-level=0",
-          ]
+        ? [`--log-file=${getChromiumLogPath()}`, "--log-level=0"]
         : []),
       // WebGL desactivado: las comprobaciones de Facebook lo usan para
       // huellas del equipo y en este Chromium de 32 bits corre por
@@ -412,6 +422,7 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     ejecutable: executable,
     jitless: process.env.BROWSER_JITLESS === "1",
     memoriaBaja: process.env.BROWSER_LOW_MEMORY === "1",
+    suave: process.env.BROWSER_SUAVE === "1",
     debug: process.env.BROWSER_DEBUG === "1",
     ...sampleMemory(),
   });
