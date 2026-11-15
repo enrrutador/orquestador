@@ -119,6 +119,7 @@ export function sampleMemory(): {
   chromiumMB: number;
   procesos: number;
   mayorMB: number;
+  tipos: Record<string, number>;
 } {
   let disponibleMB = -1;
   try {
@@ -132,12 +133,20 @@ export function sampleMemory(): {
   let totalKB = 0;
   let mayorKB = 0;
   let procesos = 0;
+  const tipos: Record<string, number> = {};
   try {
     for (const ent of readdirSync("/proc")) {
       if (!/^\d+$/.test(ent)) continue;
       try {
-        if (!readFileSync(`/proc/${ent}/cmdline`, "utf8").includes("chromium"))
-          continue;
+        const cmd = readFileSync(`/proc/${ent}/cmdline`, "utf8");
+        if (!cmd.includes("chromium")) continue;
+        const mt = cmd.match(/--type=([a-z-]+)/);
+        const tipo = cmd.includes("crashpad")
+          ? "crashpad"
+          : mt
+            ? mt[1]
+            : "navegador";
+        tipos[tipo] = (tipos[tipo] ?? 0) + 1;
         const vm = readFileSync(`/proc/${ent}/status`, "utf8").match(
           /VmRSS:\s+(\d+)\s+kB/
         );
@@ -159,6 +168,7 @@ export function sampleMemory(): {
     chromiumMB: Math.round(totalKB / 1024),
     procesos,
     mayorMB: Math.round(mayorKB / 1024),
+    tipos,
   };
 }
 
@@ -377,7 +387,11 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
       // Con diagnóstico activo, Chromium deja su propio registro en
       // .data/chromium.log (errores nativos, crashpad, GPU).
       ...(process.env.BROWSER_DEBUG === "1"
-        ? [`--log-file=${getChromiumLogPath()}`, "--log-level=0"]
+        ? [
+            "--enable-logging=file",
+            `--log-file=${getChromiumLogPath()}`,
+            "--log-level=0",
+          ]
         : []),
       // WebGL desactivado: las comprobaciones de Facebook lo usan para
       // huellas del equipo y en este Chromium de 32 bits corre por
