@@ -15,7 +15,7 @@ Plataforma inteligente para administrar múltiples Páginas de Facebook mediante
 > **Orquestador corre en el dispositivo del usuario. No se despliega en ningún servidor externo.**
 >
 > - **PC local**: la app y su navegador corren en la propia computadora.
-> - **Android local**: la app y su navegador corren en el propio teléfono, dentro de un entorno Linux en el dispositivo.
+> - **Android local**: la app y su navegador corren en el propio teléfono, con Termux nativo (sin proot).
 >
 > Sin Vercel, sin nube, sin paneles de variables de entorno. El navegador vive dentro de la app, en el mismo dispositivo, y la sesión de Facebook es del usuario en su aparato.
 >

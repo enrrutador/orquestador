@@ -79,9 +79,20 @@ para tenerla como una app más.
 
 El navegador de la plataforma necesita que inicies sesión una vez dentro
 de su Chromium. Como en el teléfono ese Chromium no tiene pantalla propia
-usable, el login se hace con el script de sesión guiado (ver
-[NAVEGADOR.md](NAVEGADOR.md)); la sesión queda guardada en el teléfono,
-en `.data/`, y la tarjeta **Navegador** del Dashboard muestra su estado.
+usable, el login se hace desde la tarjeta **Navegador** del Dashboard: la
+captura en vivo muestra la página y tus toques/texto se reenvían al
+navegador interno. Ahí resolvés contraseña, códigos y la verificación de
+Facebook. La sesión queda guardada en `.data/browser-profile/`, en el
+teléfono, y sobrevive a reinicios.
+
+Si Facebook pide verificar que sos una persona, la app mantiene esa página
+abierta y la reabre en el mismo paso si el render se cae. En Android el
+navegador arranca en modo suave y sin aislamiento de sitio justamente para
+que esa verificación no levante un proceso que Android mate. Detalles en
+[NAVEGADOR.md](NAVEGADOR.md).
+
+El script `scripts/browser-login.mjs` abre una ventana real: en Android
+necesita X11 (Termux:X11) y no es necesario para el uso normal.
 
 ## Notas honestas
 

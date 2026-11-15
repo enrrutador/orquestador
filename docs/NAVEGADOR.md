@@ -19,19 +19,40 @@ del proyecto es local primero:
 
 ## Cómo se crea la sesión (una sola vez)
 
-En el dispositivo donde corre la app:
+Desde la tarjeta **Navegador** del Dashboard, con **Abrir navegador**. El
+dueño de la cuenta inicia sesión a mano sobre la captura en vivo: contraseña,
+códigos y cualquier verificación los resuelve él, nunca la plataforma. El
+perfil queda guardado en `.data/browser-profile/` (o en
+`BROWSER_PROFILE_DIR`) y la sesión sobrevive a reinicios.
+
+En una PC con pantalla también se puede usar:
 
 ```bash
 node scripts/browser-login.mjs
 ```
 
-Se abre un Chromium en Facebook y **el dueño de la cuenta inicia sesión a
-mano**: contraseña, códigos y cualquier verificación los resuelve él, nunca
-la plataforma. Al detectar la sesión, el estado queda guardado en
-`.data/browser-state.json` (o en la ruta de `BROWSER_STATE_PATH`).
+Ese script abre una ventana de Chromium **con el mismo perfil persistente de
+la app** y cierra solo cuando detecta la sesión fuera de una comprobación. En
+Android/Termux sin X11 no sirve: ahí el login se hace desde el panel.
 
-Ese archivo es una credencial: no se commitea (está en `.gitignore` vía
-`.data/`) y no sale del dispositivo.
+El perfil y `.data/browser-state.json` son credenciales: no se commitean
+(están en `.gitignore` vía `.data/`) y no salen del dispositivo.
+
+## Si Facebook pide verificar que sos una persona
+
+La app **no resuelve** la comprobación: la muestra en el panel para que la
+resuelva el dueño. Lo que sí hace es sostenerla:
+
+- Sigue la pestaña o ventana nueva donde Facebook abra la verificación.
+- Si el render de esa página se cae, rehace la página y vuelve a la misma
+  URL (incluido `/checkpoint`) en vez de cerrar todo el navegador.
+- Si Chromium se cierra entero, lo relanza solo con backoff y retoma la
+  última URL. Tras una sesión estable, el contador de reintentos se limpia.
+
+En Android el navegador arranca con el **modo suave** y el **aislamiento de
+sitio desactivado** para que el iframe cruzado de la verificación no estrene
+un proceso que Android pueda matar. Se pueden apagar con `BROWSER_SUAVE=0`
+y `BROWSER_SIN_AISLAMIENTO=0`.
 
 ## Estados que reconoce la plataforma
 
@@ -39,7 +60,7 @@ Ese archivo es una credencial: no se commitea (está en `.gitignore` vía
 |---|---|
 | `conectado` | La sesión guardada está activa. |
 | `login-requerido` | La sesión venció o se cerró; hay que repetir el login. |
-| `checkpoint` | Facebook frenó la cuenta («confirmá que sos una persona real»). Lo resuelve el dueño desde Facebook; la plataforma no toca nada ni reintenta. |
+| `checkpoint` | Facebook frenó la cuenta («confirmá que sos una persona real»). Lo resuelve el dueño en el panel; la app mantiene y reabre esa página, pero no la resuelve. |
 | `sin-sesion` | Todavía no se hizo el login en este dispositivo. |
 | `no-verificable` | En este entorno no hay navegador para comprobar la sesión. |
 
@@ -51,5 +72,12 @@ lo consulta con su herramienta `browser_status`.
 | Variable | Para qué |
 |---|---|
 | `BROWSER_EXECUTABLE_PATH` | Ruta al Chromium/Chrome del dispositivo (opcional si está en una ruta común). |
-| `BROWSER_STATE_PATH` | Dónde guardar la sesión (default `.data/browser-state.json`). |
+| `BROWSER_PROFILE_DIR` | Perfil persistente del navegador (default `.data/browser-profile`). |
+| `BROWSER_STATE_PATH` | Copia de `storageState` que guarda el script de login (default `.data/browser-state.json`). La app usa el perfil persistente. |
 | `BROWSER_CDP_URL` | Alternativa: conectarse a un Chromium ya abierto por CDP. |
+| `BROWSER_SUAVE` | `1` achica el modelo de procesos (sin zygote, un renderizador, GPU en proceso principal). Por defecto `1` en Android; `0` lo apaga. |
+| `BROWSER_SIN_AISLAMIENTO` | `1` desactiva el aislamiento de sitio. Por defecto `1` en Android; `0` lo apaga. |
+| `BROWSER_JITLESS` | `1` corre JavaScript sin JIT (más lento, evita memoria ejecutable RWX). |
+| `BROWSER_LOW_MEMORY` | `1` fuerza un solo proceso con heap acotado (resultó peor en el teléfono; queda para probar). |
+| `BROWSER_URL_INICIAL` | Fuerza la URL del primer arranque (default: última URL o `https://www.facebook.com/`). |
+| `BROWSER_DEBUG` | `1` vuelca la vida del proceso de Chromium y escribe `.data/chromium.log`. |

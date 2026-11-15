@@ -217,6 +217,12 @@ interface LiveSession {
   browser?: import("playwright-core").Browser;
   /** Muestreador de memoria del diagnóstico, activo con la sesión. */
   sampler?: ReturnType<typeof setInterval>;
+  /** Última URL http(s) de la pestaña activa (para retomar el checkpoint). */
+  lastUrl?: string;
+  /** Evita reentradas mientras se rehace la página. */
+  recovering?: boolean;
+  /** Páginas rehechas en esta sesión (tope anti-bucle). */
+  pageRecoveries?: number;
 }
 
 const globalRef = globalThis as unknown as {
@@ -226,6 +232,10 @@ const globalRef = globalThis as unknown as {
     stopRequested: boolean;
     /** Reaperturas automáticas seguidas; frena bucles de cierres. */
     relaunchCount: number;
+    /** Última URL viva, para volver al checkpoint tras un cierre. */
+    lastUrl: string | null;
+    /** Cierres con la comprobación de Facebook en pantalla. */
+    checkpointCrashes: number;
   };
 };
 if (!globalRef.__orquestadorBrowser) {
@@ -233,11 +243,137 @@ if (!globalRef.__orquestadorBrowser) {
     live: null,
     stopRequested: false,
     relaunchCount: 0,
+    lastUrl: null,
+    checkpointCrashes: 0,
   };
 }
 const store = globalRef.__orquestadorBrowser;
 
 const VIEWPORT = { width: 412, height: 915 };
+const FACEBOOK_HOME = "https://www.facebook.com/";
+
+function esAndroid(): boolean {
+  return process.platform === "android" || Boolean(process.env.PREFIX);
+}
+
+function urlNavegable(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function urlDe(page: Page): string {
+  try {
+    return page.url();
+  } catch {
+    return "";
+  }
+}
+
+/** Páginas que ya tienen enganchados los manejadores de vida/muerte. */
+const paginasEnlazadas = new WeakSet<Page>();
+
+function recordarUrl(live: LiveSession, url: string): void {
+  if (!urlNavegable(url)) return;
+  live.lastUrl = url;
+  store.lastUrl = url;
+}
+
+/**
+ * Página activa: la que se muestra en el panel y recibe toques/texto.
+ * Facebook puede abrir la comprobación en otra pestaña o ventana; la app
+ * tiene que seguirla, no quedarse mirando la pestaña vieja. Si la
+ * comprobación se cierra (o se cae su render), se vuelve a la que siga
+ * viva en vez de cerrar todo el navegador.
+ */
+function adoptarPagina(live: LiveSession, page: Page): void {
+  if (store.live !== live) return;
+  live.page = page;
+  live.cdp = undefined;
+  recordarUrl(live, urlDe(page));
+
+  if (paginasEnlazadas.has(page)) return;
+  paginasEnlazadas.add(page);
+
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) recordarUrl(live, frame.url());
+  });
+  page.on("crash", () => {
+    diag("pagina-crash", { url: urlDe(page), ...sampleMemory() });
+    if (store.live === live && live.page === page) {
+      void recuperarPagina(live, "crash");
+    }
+  });
+  page.on("close", () => {
+    diag("pagina-cerrada", { url: urlDe(page), ...sampleMemory() });
+    if (store.live === live && live.page === page) {
+      void recuperarPagina(live, "cierre");
+    }
+  });
+}
+
+/**
+ * Rehace la página activa tras un cierre o un crash del render. No cierra
+ * el contexto: la verificación de Facebook puede haberse mudado a otra
+ * pestaña y hay que conservarla. Si no queda ninguna, se crea una nueva y
+ * se vuelve a la última URL (el checkpoint incluido).
+ */
+async function recuperarPagina(
+  live: LiveSession,
+  motivo: string
+): Promise<void> {
+  if (store.live !== live || live.recovering) return;
+  const disparadora = live.page;
+  const intento = (live.pageRecoveries ?? 0) + 1;
+  live.pageRecoveries = intento;
+  live.recovering = true;
+  const url = live.lastUrl || store.lastUrl || FACEBOOK_HOME;
+  diag("pagina-recuperacion", { motivo, intento, url });
+
+  try {
+    if (intento > 10) {
+      diag("pagina-recuperacion-agotada", { motivo, intento });
+      return;
+    }
+
+    let siguiente = live.context
+      .pages()
+      .find(
+        (p) => p !== disparadora && !p.isClosed() && urlNavegable(urlDe(p))
+      );
+
+    if (!siguiente) {
+      siguiente = await live.context.newPage();
+    }
+
+    // Si mientras tanto Facebook abrió la pestaña de la comprobación, esa
+    // manda: no hay que taparla con una página recuperada.
+    if (live.page !== disparadora && live.page !== siguiente) return;
+
+    adoptarPagina(live, siguiente);
+    if (live.page !== siguiente) return;
+
+    if (urlNavegable(url) && urlDe(siguiente) !== url) {
+      await siguiente
+        .goto(url, { waitUntil: "domcontentloaded", timeout: 45000 })
+        .catch(() => {});
+    }
+    await siguiente.waitForTimeout(1200);
+    // Si la página rehecha aguanta un minuto, se limpia el contador para
+    // que un cierre aislado mañana no agote el tope anti-bucle.
+    setTimeout(() => {
+      if (
+        store.live === live &&
+        live.page === siguiente &&
+        !siguiente.isClosed()
+      ) {
+        live.pageRecoveries = 0;
+      }
+    }, 60000);
+  } catch (error) {
+    diag("pagina-recuperacion-error", { motivo, error: String(error) });
+  } finally {
+    if (store.live === live) live.recovering = false;
+  }
+}
 
 export function isBrowserRunning(): boolean {
   return store.live !== null;
@@ -253,6 +389,7 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
   if (manual) {
     store.stopRequested = false;
     store.relaunchCount = 0;
+    store.checkpointCrashes = 0;
   }
 
   // Modo navegador VISIBLE (Termux:X11): si hay una URL de CDP
@@ -266,7 +403,9 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
       const browser = await chromium.connectOverCDP(cdpUrl);
       const context = browser.contexts()[0];
       const page = context.pages()[0] || (await context.newPage());
-      store.live = { context, page, external: true, browser };
+      const live: LiveSession = { context, page, external: true, browser };
+      store.live = live;
+      adoptarPagina(live, page);
       browser.on("disconnected", () => {
         if (store.live?.browser === browser) store.live = null;
       });
@@ -335,6 +474,24 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     }
   }
 
+  const android = esAndroid();
+  // En Android el aislamiento de sitio es lo que hace que el iframe
+  // cruzado de la comprobación de Facebook estrene un proceso nuevo, y
+  // Android lo mate a los ~2 s. Desactivarlo por defecto mantiene la
+  // comprobación dentro del renderizador que ya existe. Se puede apagar
+  // con BROWSER_SIN_AISLAMIENTO=0 (o forzar en PC con =1).
+  const sinAislamiento =
+    process.env.BROWSER_SIN_AISLAMIENTO === "1" ||
+    (android && process.env.BROWSER_SIN_AISLAMIENTO !== "0");
+  // Modo suave: mismo objetivo por otra vía (sin zygote, un solo
+  // renderizador y agrupado por sitio). En Android queda activo por
+  // defecto; se apaga con BROWSER_SUAVE=0.
+  const suave =
+    process.env.BROWSER_SUAVE === "1" ||
+    (android && process.env.BROWSER_SUAVE !== "0");
+  const urlInicial =
+    process.env.BROWSER_URL_INICIAL || store.lastUrl || FACEBOOK_HOME;
+
   const { chromium } = await import("playwright-core");
   const context = await chromium.launchPersistentContext(getProfileDir(), {
     executablePath: executable || undefined,
@@ -384,15 +541,23 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
             "--disable-software-rasterizer",
           ]
         : []),
-      // Modo suave (BROWSER_SUAVE=1): la muerte llega ~2 s después de
-      // que Chromium levanta un proceso nuevo para la comprobación
-      // (el iframe cruzado de la verificación, con aislamiento de
-      // sitio). Este modo achica el modelo de procesos — sin zygote
-      // (cada hijo arranca limpio), un solo renderizador y agrupado
-      // por sitio — para que la comprobación reuse el proceso
-      // existente en vez de estrenar uno. Se activa por entorno:
-      // se prueba sin recompilar.
-      ...(process.env.BROWSER_SUAVE === "1"
+      // Sin aislamiento de sitio: la comprobación de Facebook vive en
+      // un iframe cruzado; con site isolation activo Chromium levanta un
+      // proceso aparte y Android lo mata en plena verificación. Al
+      // desactivarlo, el iframe corre en el renderizador de la página.
+      ...(sinAislamiento
+        ? [
+            "--disable-site-isolation-trials",
+            "--disable-features=IsolateOrigins,site-per-process,SitePerProcessAndroid,IsolateOriginsAndroid",
+          ]
+        : []),
+      // Modo suave (BROWSER_SUAVE=1, activo por defecto en Android): la
+      // muerte llega ~2 s después de que Chromium levanta un proceso
+      // nuevo para la comprobación. Achica el modelo de procesos — sin
+      // zygote (cada hijo arranca limpio), un solo renderizador y
+      // agrupado por sitio — para que la comprobación reuse el proceso
+      // existente en vez de estrenar uno. Se apaga con BROWSER_SUAVE=0.
+      ...(suave
         ? ["--no-zygote", "--renderer-process-limit=1", "--process-per-site"]
         : []),
       // Con diagnóstico activo, Chromium deja su propio registro en
@@ -414,52 +579,77 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     ],
   });
 
+  const launchedAt = Date.now();
   const page = context.pages()[0] || (await context.newPage());
-  store.live = { context, page };
+  const live: LiveSession = { context, page };
+  store.live = live;
+  adoptarPagina(live, page);
+
+  // Facebook puede abrir la comprobación en una pestaña/ventana nueva:
+  // se adopta como activa y se sigue. Si esa pestaña se cierra, la
+  // recuperación vuelve a la que siga viva (o rehace una).
+  context.on("page", (nueva) => {
+    if (store.live !== live) return;
+    diag("pagina-nueva", { url: urlDe(nueva) });
+    adoptarPagina(live, nueva);
+  });
 
   // Diagnóstico: eventos de vida/muerte y curva de memoria cada 5 s.
   diag("lanzado", {
     ejecutable: executable,
     jitless: process.env.BROWSER_JITLESS === "1",
     memoriaBaja: process.env.BROWSER_LOW_MEMORY === "1",
-    suave: process.env.BROWSER_SUAVE === "1",
+    suave,
+    sinAislamiento,
+    urlInicial,
     debug: process.env.BROWSER_DEBUG === "1",
     ...sampleMemory(),
   });
-  page.on("crash", () => {
-    diag("pagina-crash", { url: page.url(), ...sampleMemory() });
-  });
-  store.live.sampler = setInterval(() => {
+  live.sampler = setInterval(() => {
     try {
-      diag("memoria", { url: page.url(), ...sampleMemory() });
+      diag("memoria", { url: urlDe(live.page), ...sampleMemory() });
     } catch {
       /* el muestreo nunca rompe la sesión */
     }
   }, 5000);
 
   context.on("close", () => {
+    const vivioMs = Date.now() - launchedAt;
     diag("contexto-cerrado", {
       reaperturas: store.relaunchCount,
+      vivioMs,
+      checkpointCrashes: store.checkpointCrashes,
       ...sampleMemory(),
     });
     if (store.live?.context === context && store.live.sampler) {
       clearInterval(store.live.sampler);
     }
     if (store.live?.context === context) store.live = null;
+    if (store.lastUrl?.includes("/checkpoint")) {
+      store.checkpointCrashes++;
+    }
+    // Una sesión que duró un minuto cuenta como estable: el contador de
+    // reaperturas se limpia para no agotar el tope entre días.
+    if (vivioMs > 60000) store.relaunchCount = 0;
     // Cierre inesperado (Chromium se cae en el teléfono con las páginas
-    // pesadas de comprobación): se reabre solo y vuelve a Facebook. El
-    // perfil guarda la sesión, así que retoma donde estaba — incluso a
-    // mitad de una comprobación. Con tope para no entrar en bucle.
-    if (!store.stopRequested && store.relaunchCount < 6) {
+    // pesadas de comprobación): se reabre solo y retoma la última URL,
+    // incluso a mitad de una comprobación. Backoff creciente y tope.
+    if (!store.stopRequested && store.relaunchCount < 8) {
       store.relaunchCount++;
+      const espera = Math.min(
+        1500 * 2 ** (store.relaunchCount - 1),
+        15000
+      );
       setTimeout(() => {
-        startBrowser(false).catch(() => {});
-      }, 1500);
+        if (!store.stopRequested && !store.live) {
+          startBrowser(false).catch(() => {});
+        }
+      }, espera);
     }
   });
 
-  await page
-    .goto("https://www.facebook.com/", {
+  await live.page
+    .goto(urlInicial, {
       waitUntil: "domcontentloaded",
       timeout: 45000,
     })
@@ -484,20 +674,28 @@ export async function stopBrowser(): Promise<void> {
 
 export async function browserScreenshot(): Promise<Buffer | null> {
   if (!store.live) return null;
-  if (store.live.page.isClosed()) {
-    // La página murió pero el contexto sigue: se fuerza el cierre para
-    // que el manejador reabra el navegador solo.
-    const { context } = store.live;
-    store.live = null;
-    context.close().catch(() => {});
+  const live = store.live;
+  // La comprobación puede haber quedado en otra pestaña: si hay una con
+  // /checkpoint, esa manda. Si la activa murió, se rehace sin cerrar el
+  // contexto (cerrarlo mataba la pestaña de la verificación).
+  const checkpoint = live.context
+    .pages()
+    .find((p) => !p.isClosed() && urlDe(p).includes("/checkpoint"));
+  if (checkpoint && checkpoint !== live.page) {
+    adoptarPagina(live, checkpoint);
+  } else if (live.page.isClosed()) {
+    void recuperarPagina(live, "captura-pagina-cerrada");
     return null;
   }
   // JPEG calidad 80: mucho más liviano que el PNG para capturar seguido en
   // un teléfono débil, y con nitidez suficiente para leer un captcha
   // (lección de Pulse OS: con calidad baja el captcha no se distinguía).
-  return store.live.page
-    .screenshot({ type: "jpeg", quality: 80 })
-    .catch(() => null);
+  return live.page.screenshot({ type: "jpeg", quality: 80 }).catch(() => {
+    if (live.page.isClosed()) {
+      void recuperarPagina(live, "captura-error");
+    }
+    return null;
+  });
 }
 
 /**
@@ -679,9 +877,37 @@ export async function browserHold(
 
 async function liveStatus(): Promise<BrowserStatus> {
   const checkedAt = new Date().toISOString();
-  const { context, page } = store.live!;
-  const url = page.url();
+  const live = store.live!;
+  const { context } = live;
 
+  // La comprobación puede vivir en otra pestaña que la activa. Se busca
+  // primero ahí; si la activa se cerró, se adopta cualquier otra viva.
+  const checkpointPage = context
+    .pages()
+    .find((p) => !p.isClosed() && urlDe(p).includes("/checkpoint"));
+  let page = live.page;
+  if (checkpointPage && checkpointPage !== page) {
+    adoptarPagina(live, checkpointPage);
+    page = checkpointPage;
+  } else if (page.isClosed()) {
+    const otra = context.pages().find((p) => !p.isClosed());
+    if (otra) {
+      adoptarPagina(live, otra);
+      page = otra;
+    } else {
+      void recuperarPagina(live, "estado-pagina-cerrada");
+      return {
+        state: "no-verificable",
+        detail: "Se cerró la página del navegador; la app la está rehaciendo.",
+        browserAvailable: true,
+        hasSavedSession: true,
+        running: true,
+        checkedAt,
+      };
+    }
+  }
+
+  const url = urlDe(page);
   const cookies = await context
     .cookies("https://www.facebook.com")
     .catch(() => []);
@@ -696,7 +922,7 @@ async function liveStatus(): Promise<BrowserStatus> {
     return {
       state: "checkpoint",
       detail:
-        "Facebook pidió confirmar que sos una persona real. Resolvelo en la pantalla del navegador.",
+        "Facebook pidió confirmar que sos una persona real. Resolvelo en la pantalla del navegador: si la página se cierra, la app la reabre sola en el mismo paso.",
       browserAvailable: true,
       hasSavedSession: true,
       running: true,
@@ -705,6 +931,10 @@ async function liveStatus(): Promise<BrowserStatus> {
   }
 
   if (hasUserCookie) {
+    if (store.live === live) {
+      store.checkpointCrashes = 0;
+      store.relaunchCount = 0;
+    }
     return {
       state: "conectado",
       detail: "Sesión activa en Facebook.",
