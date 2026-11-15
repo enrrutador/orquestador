@@ -25,6 +25,12 @@ pkg install -y nodejs git
 pkg install -y x11-repo
 pkg install -y chromium
 
+# termux-api permite pedir el wake lock desde la app. Android 12+ mata
+# procesos hijos que gastan CPU cuando Termux queda en segundo plano; el
+# wake lock lo evita en la mayoría de los casos. También hace falta la app
+# Termux:API (F-Droid), que es la que ejecuta la orden.
+pkg install -y termux-api
+
 # Repo (si el script se corre desde afuera de la carpeta, se clona en ~)
 if [ ! -f package.json ]; then
   if [ -d ~/orquestador ]; then

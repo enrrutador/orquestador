@@ -34,6 +34,10 @@ export default function BrowserCard() {
   const [error, setError] = useState<string | null>(null);
   const [shotTick, setShotTick] = useState(0);
   const [text, setText] = useState("");
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [diagText, setDiagText] = useState("");
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagCopied, setDiagCopied] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -172,6 +176,50 @@ export default function BrowserCard() {
     fetchStatus();
   };
 
+  const goto = async (url: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/browser/goto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "No se pudo navegar");
+      refreshShotSoon();
+      setTimeout(fetchStatus, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadDiag = async () => {
+    setDiagOpen(true);
+    setDiagLoading(true);
+    setDiagCopied(false);
+    try {
+      const res = await fetch("/api/browser/diagnostico");
+      setDiagText(await res.text());
+    } catch {
+      setDiagText("No se pudo leer la bitácora.");
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  const copyDiag = async () => {
+    try {
+      await navigator.clipboard.writeText(diagText);
+      setDiagCopied(true);
+      setTimeout(() => setDiagCopied(false), 2000);
+    } catch {
+      setDiagCopied(false);
+    }
+  };
+
   const style = status ? STATE_STYLE[status.state] : null;
 
   return (
@@ -207,8 +255,16 @@ export default function BrowserCard() {
           </div>
         )}
 
-        {status && status.state === "checkpoint" && (
-          <p className="text-sm text-red-200/90 mt-1.5 leading-relaxed">{status.detail}</p>
+        {status && (
+          <p
+            className={`mt-1.5 leading-relaxed ${
+              status.state === "checkpoint"
+                ? "text-sm text-red-200/90"
+                : "text-xs text-zinc-500"
+            }`}
+          >
+            {status.detail}
+          </p>
         )}
 
         {status && !running && (
@@ -268,6 +324,25 @@ export default function BrowserCard() {
               </button>
             </div>
 
+            {(status?.state === "login-requerido" ||
+              status?.state === "checkpoint") && (
+              <div className="mt-3">
+                <button
+                  onClick={() => goto("https://mbasic.facebook.com/")}
+                  disabled={busy}
+                  className="w-full border border-zinc-700 active:bg-zinc-800 disabled:opacity-50 text-zinc-200 text-sm font-medium py-2.5 px-4 rounded-xl"
+                >
+                  {status.state === "checkpoint"
+                    ? "Probar verificación liviana (mbasic)"
+                    : "Abrir login liviano (mbasic)"}
+                </button>
+                <p className="text-[11px] text-zinc-500 mt-1.5 text-center">
+                  Facebook puede mostrar la verificación sin JavaScript, más
+                  liviana para el teléfono.
+                </p>
+              </div>
+            )}
+
             <button
               onClick={stop}
               disabled={busy}
@@ -278,6 +353,33 @@ export default function BrowserCard() {
             </button>
           </div>
         )}
+
+        <div className="mt-4 border-t border-zinc-800 pt-3">
+          <button
+            onClick={loadDiag}
+            className="text-xs text-zinc-400 underline underline-offset-2"
+          >
+            {diagOpen ? "Actualizar diagnóstico" : "Ver diagnóstico"}
+          </button>
+          {diagOpen && (
+            <div className="mt-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-zinc-500">
+                  Últimas líneas de .data/diagnostico.log
+                </p>
+                <button
+                  onClick={copyDiag}
+                  className="text-xs text-zinc-300 bg-zinc-800 active:bg-zinc-700 px-2.5 py-1 rounded-lg"
+                >
+                  {diagCopied ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/50 p-2 text-[10px] leading-snug text-zinc-400 select-text">
+                {diagLoading ? "Cargando..." : diagText || "Sin bitácora todavía."}
+              </pre>
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

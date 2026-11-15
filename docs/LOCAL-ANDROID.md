@@ -52,6 +52,9 @@ Notas de la instalación:
   `pkg` prueba los espejos y elige uno automáticamente; dejalo correr.
 - El ejecutable de Chromium se llama **`chromium-browser`** (no
   `chromium`); la app ya lo busca con ese nombre.
+- El script instala `termux-api`, pero el wake lock necesita además la app
+  **Termux:API** desde F-Droid (misma firma que Termux). Sin ella, Android
+  puede cerrar el navegador durante la verificación.
 - La compilación de la app (`npm run build`) usa el compilador SWC en
   WASM (`@next/swc-wasm-nodejs`, ya incluido en el proyecto): el SWC
   nativo para Android ARM no se publica desde Next 13. Es más lento que
@@ -93,6 +96,48 @@ que esa verificación no levante un proceso que Android mate. Detalles en
 
 El script `scripts/browser-login.mjs` abre una ventana real: en Android
 necesita X11 (Termux:X11) y no es necesario para el uso normal.
+
+## Si Android cierra el navegador en la verificación
+
+Android 12 y posteriores tienen un **phantom process killer**: cuando
+Termux queda en segundo plano (por ejemplo, mientras mirás el panel desde
+Chrome), el sistema mata los procesos hijos que consumen CPU. La
+verificación de Facebook es justo eso, así que puede cerrar el navegador
+aunque la app lo reabra y retome la misma página.
+
+La app ya hace lo que puede desde adentro:
+
+- pide el **wake lock** de Termux al abrir el navegador (necesita
+  `pkg install termux-api` y la app **Termux:API** desde F-Droid);
+- reduce el modelo de procesos (modo suave y sin aislamiento de sitio);
+- reabre la página de la verificación y retoma la URL;
+- muestra el diagnóstico en la tarjeta Navegador (botón **Ver
+  diagnóstico**) y en `http://localhost:3000/api/browser/diagnostico`.
+
+Si aun así se cierra, hay que desactivar el killer del lado de Android:
+
+- **Android 14 o superior:** Ajustes → Sistema → Opciones de
+  desarrollador → **Deshabilitar restricciones de procesos hijos**.
+- **Android 12, 12L o 13:** por ADB (una vez):
+
+  ```bash
+  adb shell settings put global settings_enable_monitor_phantom_procs false
+  ```
+
+  En Android 12 también hay que subir el tope (el orden importa):
+
+  ```bash
+  adb shell "/system/bin/device_config set_sync_disabled_for_tests persistent"
+  adb shell "/system/bin/device_config put activity_manager max_phantom_processes 2147483647"
+  ```
+
+  Sin computadora, se puede hacer desde el propio teléfono con
+  `pkg install android-tools`, activando **Depuración inalámbrica** y
+  usando `adb pair`/`adb connect`.
+
+Mientras tanto, el botón **Probar verificación liviana (mbasic)** de la
+tarjeta navega a la versión sin JavaScript de Facebook, que suele ser
+mucho más liviana para el teléfono.
 
 ## Notas honestas
 

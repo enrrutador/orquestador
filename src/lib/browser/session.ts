@@ -236,6 +236,8 @@ const globalRef = globalThis as unknown as {
     lastUrl: string | null;
     /** Cierres con la comprobación de Facebook en pantalla. */
     checkpointCrashes: number;
+    /** true si la app retiene el wake lock de Termux. */
+    wakeLockHeld: boolean;
   };
 };
 if (!globalRef.__orquestadorBrowser) {
@@ -245,6 +247,7 @@ if (!globalRef.__orquestadorBrowser) {
     relaunchCount: 0,
     lastUrl: null,
     checkpointCrashes: 0,
+    wakeLockHeld: false,
   };
 }
 const store = globalRef.__orquestadorBrowser;
@@ -266,6 +269,82 @@ function urlDe(page: Page): string {
   } catch {
     return "";
   }
+}
+
+/** Ejecuta un comando corto del sistema sin romper la sesión si falla. */
+async function comando(
+  cmd: string,
+  args: string[]
+): Promise<{ ok: boolean; out: string; error?: string }> {
+  try {
+    const { execFile } = await import("child_process");
+    return await new Promise((resolve) => {
+      execFile(cmd, args, { timeout: 5000 }, (error, stdout, stderr) => {
+        if (error) {
+          resolve({
+            ok: false,
+            out: "",
+            error: `${String(error)}${stderr ? `: ${String(stderr).trim()}` : ""}`,
+          });
+        } else {
+          resolve({ ok: true, out: String(stdout).trim() });
+        }
+      });
+    });
+  } catch (error) {
+    return { ok: false, out: "", error: String(error) };
+  }
+}
+
+let androidReleaseCache: string | null = null;
+async function androidRelease(): Promise<string> {
+  if (!esAndroid()) return "";
+  if (androidReleaseCache !== null) return androidReleaseCache;
+  const res = await comando("getprop", ["ro.build.version.release"]);
+  androidReleaseCache = res.ok ? res.out : "";
+  return androidReleaseCache;
+}
+
+let commitCache: string | null = null;
+async function commitActual(): Promise<string> {
+  if (commitCache !== null) return commitCache;
+  const res = await comando("git", ["rev-parse", "--short", "HEAD"]);
+  commitCache = res.ok ? res.out : "";
+  return commitCache;
+}
+
+/**
+ * Wake lock de Termux: cuando el dueño mira el panel desde Chrome, Termux
+ * queda en segundo plano y Android 12+ mata los procesos hijos que gastan
+ * CPU (justo lo que hace la comprobación de Facebook). El wake lock no es
+ * una bala de plata, pero mantiene la app y sus hijos despiertos. Requiere
+ * el paquete termux-api y la app Termux:API.
+ */
+async function asegurarWakeLock(): Promise<void> {
+  if (!esAndroid() || store.wakeLockHeld) return;
+  const res = await comando("termux-wake-lock", []);
+  store.wakeLockHeld = res.ok;
+  diag(
+    "wake-lock",
+    res.ok
+      ? { ok: true }
+      : { ok: false, error: res.error, ayuda: "pkg install termux-api + app Termux:API" }
+  );
+}
+
+async function liberarWakeLock(): Promise<void> {
+  if (!esAndroid() || !store.wakeLockHeld) return;
+  const res = await comando("termux-wake-unlock", []);
+  if (res.ok) store.wakeLockHeld = false;
+  diag("wake-unlock", res.ok ? { ok: true } : { ok: false, error: res.error });
+}
+
+function avisoProcesosAndroid(release: string): string {
+  const mayor = Number.parseInt(release, 10);
+  if (Number.isFinite(mayor) && mayor >= 14) {
+    return "Android está matando los procesos del navegador. Activá Ajustes → Sistema → Opciones de desarrollador → «Deshabilitar restricciones de procesos hijos» y volvé a abrir el navegador.";
+  }
+  return "Android 12/13 está matando los procesos del navegador. Desactivá el «phantom process killer» por ADB (comando en docs/LOCAL-ANDROID.md) y volvé a abrir el navegador.";
 }
 
 /** Páginas que ya tienen enganchados los manejadores de vida/muerte. */
@@ -384,6 +463,25 @@ export function getLivePage(): Page | null {
   return store.live?.page ?? null;
 }
 
+/** Navega la página activa (login liviano, volver a Facebook, etc.). */
+export async function browserGoto(url: string): Promise<boolean> {
+  if (!store.live) return false;
+  const live = store.live;
+  if (live.page.isClosed()) {
+    void recuperarPagina(live, "goto-pagina-cerrada");
+    return false;
+  }
+  try {
+    await live.page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 45000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function startBrowser(manual = true): Promise<BrowserStatus> {
   if (store.live) return getBrowserStatus();
   if (manual) {
@@ -391,6 +489,11 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     store.relaunchCount = 0;
     store.checkpointCrashes = 0;
   }
+
+  // En Android, el sistema mata procesos hijos que gastan CPU cuando la
+  // app está en segundo plano. El wake lock mantiene viva la sesión
+  // mientras el dueño mira el panel desde otro navegador.
+  await asegurarWakeLock();
 
   // Modo navegador VISIBLE (Termux:X11): si hay una URL de CDP
   // configurada, la app se conecta al Chromium que el usuario abrió en
@@ -596,6 +699,9 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
 
   // Diagnóstico: eventos de vida/muerte y curva de memoria cada 5 s.
   diag("lanzado", {
+    commit: await commitActual(),
+    android: await androidRelease(),
+    wakeLock: store.wakeLockHeld,
     ejecutable: executable,
     jitless: process.env.BROWSER_JITLESS === "1",
     memoriaBaja: process.env.BROWSER_LOW_MEMORY === "1",
@@ -660,16 +766,17 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
 
 export async function stopBrowser(): Promise<void> {
   store.stopRequested = true;
-  if (!store.live) return;
   const live = store.live;
   store.live = null;
-  if (live.external) {
+  if (live?.external) {
     // Navegador visible del usuario: la app solo se desconecta; la
     // ventana sigue abierta y es de él.
     await live.browser?.close().catch(() => {});
+    await liberarWakeLock();
     return;
   }
-  await live.context.close().catch(() => {});
+  if (live) await live.context.close().catch(() => {});
+  await liberarWakeLock();
 }
 
 export async function browserScreenshot(): Promise<Buffer | null> {
@@ -980,9 +1087,14 @@ export async function getBrowserStatus(): Promise<BrowserStatus> {
   const executable = findChromium();
 
   if (hasSavedSession) {
+    const release = await androidRelease();
+    const detail =
+      esAndroid() && release && store.checkpointCrashes >= 2
+        ? `El navegador se cerró ${store.checkpointCrashes} veces durante la comprobación. ${avisoProcesosAndroid(release)}`
+        : "Hay una sesión guardada. Abrí el navegador para usarla.";
     return {
       state: "detenido",
-      detail: "Hay una sesión guardada. Abrí el navegador para usarla.",
+      detail,
       browserAvailable: Boolean(executable),
       hasSavedSession,
       running: false,

@@ -52,7 +52,20 @@ resuelva el dueño. Lo que sí hace es sostenerla:
 En Android el navegador arranca con el **modo suave** y el **aislamiento de
 sitio desactivado** para que el iframe cruzado de la verificación no estrene
 un proceso que Android pueda matar. Se pueden apagar con `BROWSER_SUAVE=0`
-y `BROWSER_SIN_AISLAMIENTO=0`.
+y `BROWSER_SIN_AISLAMIENTO=0`. La app también pide el **wake lock** de
+Termux (`pkg install termux-api` + app Termux:API) para que Android no mate
+los procesos hijos mientras mirás el panel desde Chrome.
+
+Si la verificación pesada igual cierra el navegador, la tarjeta tiene el
+botón **Probar verificación liviana (mbasic)**: navega a la versión sin
+JavaScript de Facebook, mucho más liviana. El botón **Ver diagnóstico**
+muestra las últimas líneas de `.data/diagnostico.log` y permite copiarlas.
+
+El límite real puede estar en Android (phantom process killer): la app no
+puede desactivarlo desde adentro. En Android 14+ se apaga con **Ajustes →
+Sistema → Opciones de desarrollador → Deshabilitar restricciones de
+procesos hijos**; en Android 12/13 hace falta ADB. Los comandos están en
+[LOCAL-ANDROID.md](LOCAL-ANDROID.md#si-android-cierra-el-navegador-en-la-verificación).
 
 ## Estados que reconoce la plataforma
 
