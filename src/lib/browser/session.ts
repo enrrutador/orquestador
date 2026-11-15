@@ -341,7 +341,8 @@ async function liberarWakeLock(): Promise<void> {
 
 function avisoProcesosAndroid(release: string): string {
   const mayor = Number.parseInt(release, 10);
-  if (Number.isFinite(mayor) && mayor >= 14) {
+  if (!Number.isFinite(mayor) || mayor < 12) return "";
+  if (mayor >= 14) {
     return "Android está matando los procesos del navegador. Activá Ajustes → Sistema → Opciones de desarrollador → «Deshabilitar restricciones de procesos hijos» y volvé a abrir el navegador.";
   }
   return "Android 12/13 está matando los procesos del navegador. Desactivá el «phantom process killer» por ADB (comando en docs/LOCAL-ANDROID.md) y volvé a abrir el navegador.";
@@ -1091,9 +1092,11 @@ export async function getBrowserStatus(): Promise<BrowserStatus> {
 
   if (hasSavedSession) {
     const release = await androidRelease();
+    const aviso =
+      esAndroid() && release ? avisoProcesosAndroid(release) : "";
     const detail =
-      esAndroid() && release && store.checkpointCrashes >= 2
-        ? `El navegador se cerró ${store.checkpointCrashes} veces durante la comprobación. ${avisoProcesosAndroid(release)}`
+      store.checkpointCrashes >= 2 && aviso
+        ? `El navegador se cerró ${store.checkpointCrashes} veces durante la comprobación. ${aviso}`
         : "Hay una sesión guardada. Abrí el navegador para usarla.";
     return {
       state: "detenido",
