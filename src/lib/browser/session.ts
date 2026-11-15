@@ -648,10 +648,13 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
       // un iframe cruzado; con site isolation activo Chromium levanta un
       // proceso aparte y Android lo mata en plena verificación. Al
       // desactivarlo, el iframe corre en el renderizador de la página.
+      // EnforceSameDocumentOriginInvariants es la feature que causó el
+      // «Aw Snap» al loguear en Facebook en Chrome 153 (crbug 549229687);
+      // desactivarla es una red de seguridad para builds viejos de Termux.
       ...(sinAislamiento
         ? [
             "--disable-site-isolation-trials",
-            "--disable-features=IsolateOrigins,site-per-process,SitePerProcessAndroid,IsolateOriginsAndroid",
+            "--disable-features=IsolateOrigins,site-per-process,SitePerProcessAndroid,IsolateOriginsAndroid,EnforceSameDocumentOriginInvariants",
           ]
         : []),
       // Modo suave (BROWSER_SUAVE=1, activo por defecto en Android): la

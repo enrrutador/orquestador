@@ -365,7 +365,7 @@ export default function BrowserCard() {
             <div className="mt-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] text-zinc-500">
-                  Últimas líneas de .data/diagnostico.log
+                  diagnostico.log + inicio.log
                 </p>
                 <button
                   onClick={copyDiag}

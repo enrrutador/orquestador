@@ -33,6 +33,10 @@ if ! command -v termux-wake-lock >/dev/null 2>&1; then
   echo "Instalá: pkg install termux-api (y la app Termux:API desde F-Droid)."
 fi
 
-npm run start
+mkdir -p .data
+# El diagnóstico de Playwright (process did exit: signal=...) va a stderr;
+# se guarda junto al de la app para poder verlo desde el panel.
+export BROWSER_DEBUG="${BROWSER_DEBUG:-1}"
+npm run start 2>&1 | tee -a .data/inicio.log
 
 termux-wake-unlock || true
