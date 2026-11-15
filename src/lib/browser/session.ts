@@ -261,6 +261,20 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
             "--mute-audio",
           ]
         : []),
+      // Modo sin JIT (BROWSER_JITLESS=1): la comprobación de Facebook
+      // corre JavaScript pesadísimo y el JIT de V8 pide memoria
+      // ejecutable (RWX), que Android corta en procesos de terminal
+      // (W^X/SELinux) y puede matar el render a mitad de la
+      // comprobación. Sin JIT todo se interpreta: más lento, pero sin
+      // esa vía de cierre. Multiproceso normal (el single-process del
+      // modo memoria baja resultó peor: verificado 2026-11-14).
+      ...(process.env.BROWSER_JITLESS === "1"
+        ? [
+            "--jitless",
+            "--in-process-gpu",
+            "--disable-software-rasterizer",
+          ]
+        : []),
       // WebGL desactivado: las comprobaciones de Facebook lo usan para
       // huellas del equipo y en este Chromium de 32 bits corre por
       // software (SwiftShader), que es el sospechoso de los cierres
