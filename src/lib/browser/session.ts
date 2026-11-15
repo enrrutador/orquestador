@@ -1,4 +1,10 @@
-import { existsSync } from "fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+} from "fs";
 import path from "path";
 import type { BrowserContext, Page } from "playwright-core";
 
@@ -17,6 +23,14 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
 }
 if (!process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS) {
   process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
+}
+
+// Diagnóstico (BROWSER_DEBUG=1): Playwright vuelca en la terminal del
+// servidor la vida del proceso de Chromium, incluida la línea clave al
+// morir: «process did exit: exitCode=…, signal=…». SIGKILL = Android lo
+// mató (memoria); SIGSEGV/SIGTRAP/SIGABRT = caída nativa del motor.
+if (process.env.BROWSER_DEBUG === "1" && !process.env.DEBUG) {
+  process.env.DEBUG = "pw:browser";
 }
 
 /**
@@ -65,6 +79,89 @@ export function getProfileDir(): string {
   );
 }
 
+// ============================================================
+// Diagnóstico: bitácora de eventos + muestreo de memoria
+// ============================================================
+
+export function getDiagPath(): string {
+  return path.join(process.cwd(), ".data", "diagnostico.log");
+}
+
+export function getChromiumLogPath(): string {
+  return path.join(process.cwd(), ".data", "chromium.log");
+}
+
+/**
+ * Anota un evento en .data/diagnostico.log (una línea JSON por evento).
+ * El diagnóstico nunca puede romper la app: todo va envuelto en try.
+ */
+export function diag(evento: string, datos?: Record<string, unknown>): void {
+  try {
+    mkdirSync(path.join(process.cwd(), ".data"), { recursive: true });
+    appendFileSync(
+      getDiagPath(),
+      JSON.stringify({ t: new Date().toISOString(), evento, ...datos }) + "\n"
+    );
+  } catch {
+    /* sin bitácora, la app sigue */
+  }
+}
+
+/**
+ * Foto de memoria del momento: RAM disponible del teléfono y consumo de
+ * los procesos de Chromium (en Termux son del mismo usuario y /proc se
+ * puede leer). Sirve para ver la curva previa a un cierre: si la RAM
+ * disponible cae a casi cero antes de morir, lo mata Android (LMK/OOM);
+ * si muere con RAM de sobra, la caída es del propio Chromium.
+ */
+export function sampleMemory(): {
+  disponibleMB: number;
+  chromiumMB: number;
+  procesos: number;
+  mayorMB: number;
+} {
+  let disponibleMB = -1;
+  try {
+    const m = readFileSync("/proc/meminfo", "utf8").match(
+      /MemAvailable:\s+(\d+)\s+kB/
+    );
+    if (m) disponibleMB = Math.round(parseInt(m[1], 10) / 1024);
+  } catch {
+    /* /proc no disponible en este sistema */
+  }
+  let totalKB = 0;
+  let mayorKB = 0;
+  let procesos = 0;
+  try {
+    for (const ent of readdirSync("/proc")) {
+      if (!/^\d+$/.test(ent)) continue;
+      try {
+        if (!readFileSync(`/proc/${ent}/cmdline`, "utf8").includes("chromium"))
+          continue;
+        const vm = readFileSync(`/proc/${ent}/status`, "utf8").match(
+          /VmRSS:\s+(\d+)\s+kB/
+        );
+        if (vm) {
+          const kb = parseInt(vm[1], 10);
+          totalKB += kb;
+          if (kb > mayorKB) mayorKB = kb;
+          procesos++;
+        }
+      } catch {
+        /* el proceso murió a mitad de la lectura */
+      }
+    }
+  } catch {
+    /* sin /proc */
+  }
+  return {
+    disponibleMB,
+    chromiumMB: Math.round(totalKB / 1024),
+    procesos,
+    mayorMB: Math.round(mayorKB / 1024),
+  };
+}
+
 function findChromium(): string | null {
   const candidates = [
     process.env.BROWSER_EXECUTABLE_PATH,
@@ -108,6 +205,8 @@ interface LiveSession {
   external?: boolean;
   /** Conexión CDP a soltar al desconectar (solo modo externo). */
   browser?: import("playwright-core").Browser;
+  /** Muestreador de memoria del diagnóstico, activo con la sesión. */
+  sampler?: ReturnType<typeof setInterval>;
 }
 
 const globalRef = globalThis as unknown as {
@@ -275,6 +374,11 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
             "--disable-software-rasterizer",
           ]
         : []),
+      // Con diagnóstico activo, Chromium deja su propio registro en
+      // .data/chromium.log (errores nativos, crashpad, GPU).
+      ...(process.env.BROWSER_DEBUG === "1"
+        ? [`--log-file=${getChromiumLogPath()}`, "--log-level=0"]
+        : []),
       // WebGL desactivado: las comprobaciones de Facebook lo usan para
       // huellas del equipo y en este Chromium de 32 bits corre por
       // software (SwiftShader), que es el sospechoso de los cierres
@@ -288,7 +392,34 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
 
   const page = context.pages()[0] || (await context.newPage());
   store.live = { context, page };
+
+  // Diagnóstico: eventos de vida/muerte y curva de memoria cada 5 s.
+  diag("lanzado", {
+    ejecutable: executable,
+    jitless: process.env.BROWSER_JITLESS === "1",
+    memoriaBaja: process.env.BROWSER_LOW_MEMORY === "1",
+    debug: process.env.BROWSER_DEBUG === "1",
+    ...sampleMemory(),
+  });
+  page.on("crash", () => {
+    diag("pagina-crash", { url: page.url(), ...sampleMemory() });
+  });
+  store.live.sampler = setInterval(() => {
+    try {
+      diag("memoria", { url: page.url(), ...sampleMemory() });
+    } catch {
+      /* el muestreo nunca rompe la sesión */
+    }
+  }, 5000);
+
   context.on("close", () => {
+    diag("contexto-cerrado", {
+      reaperturas: store.relaunchCount,
+      ...sampleMemory(),
+    });
+    if (store.live?.context === context && store.live.sampler) {
+      clearInterval(store.live.sampler);
+    }
     if (store.live?.context === context) store.live = null;
     // Cierre inesperado (Chromium se cae en el teléfono con las páginas
     // pesadas de comprobación): se reabre solo y vuelve a Facebook. El
