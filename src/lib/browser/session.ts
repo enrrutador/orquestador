@@ -348,6 +348,12 @@ function avisoProcesosAndroid(release: string): string {
   return "Android 12/13 está matando los procesos del navegador. Desactivá el «phantom process killer» por ADB (comando en docs/LOCAL-ANDROID.md) y volvé a abrir el navegador.";
 }
 
+function avisoCierresAndroidViejo(release: string): string {
+  const mayor = Number.parseInt(release, 10);
+  if (!Number.isFinite(mayor) || mayor >= 12) return "";
+  return "Android 9–11 no tiene el «phantom process killer»: el cierre suele ser poca memoria o una caída de Chromium. Probá «Probar verificación liviana (mbasic)», cerrá otras apps y revisá el diagnóstico.";
+}
+
 /** Páginas que ya tienen enganchados los manejadores de vida/muerte. */
 const paginasEnlazadas = new WeakSet<Page>();
 
@@ -579,20 +585,32 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
   }
 
   const android = esAndroid();
+  const release = await androidRelease();
+  const android12 = android && Number.parseInt(release, 10) >= 12;
+  // Tras dos cierres con la comprobación en pantalla se reintenta sin los
+  // ajustes agresivos. En Android 9 no hay phantom process killer: si
+  // igual se cierra, el problema es de Chromium o de memoria, y conviene
+  // descartar que lo estén causando los flags.
+  const modoConservador = !manual && store.checkpointCrashes >= 2;
   // En Android el aislamiento de sitio es lo que hace que el iframe
-  // cruzado de la comprobación de Facebook estrene un proceso nuevo, y
-  // Android lo mate a los ~2 s. Desactivarlo por defecto mantiene la
-  // comprobación dentro del renderizador que ya existe. Se puede apagar
-  // con BROWSER_SIN_AISLAMIENTO=0 (o forzar en PC con =1).
+  // cruzado de la comprobación de Facebook estrene un proceso nuevo. En
+  // Android 12+ el sistema lo mata a los ~2 s; desactivarlo por defecto
+  // mantiene la comprobación dentro del renderizador que ya existe. Se
+  // puede apagar con BROWSER_SIN_AISLAMIENTO=0 (o forzar en PC con =1).
   const sinAislamiento =
     process.env.BROWSER_SIN_AISLAMIENTO === "1" ||
-    (android && process.env.BROWSER_SIN_AISLAMIENTO !== "0");
+    (!modoConservador &&
+      android &&
+      process.env.BROWSER_SIN_AISLAMIENTO !== "0");
   // Modo suave: mismo objetivo por otra vía (sin zygote, un solo
-  // renderizador y agrupado por sitio). En Android queda activo por
-  // defecto; se apaga con BROWSER_SUAVE=0.
+  // renderizador y agrupado por sitio). Solo por defecto en Android 12+,
+  // donde existe el phantom process killer; en Android 9 no se usa salvo
+  // que se pida con BROWSER_SUAVE=1. Se apaga con BROWSER_SUAVE=0.
   const suave =
     process.env.BROWSER_SUAVE === "1" ||
-    (android && process.env.BROWSER_SUAVE !== "0");
+    (!modoConservador &&
+      android12 &&
+      process.env.BROWSER_SUAVE !== "0");
   const urlInicial =
     process.env.BROWSER_URL_INICIAL || store.lastUrl || FACEBOOK_HOME;
 
@@ -647,19 +665,24 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
         : []),
       // Sin aislamiento de sitio: la comprobación de Facebook vive en
       // un iframe cruzado; con site isolation activo Chromium levanta un
-      // proceso aparte y Android lo mata en plena verificación. Al
+      // proceso aparte y Android 12+ lo mata en plena verificación. Al
       // desactivarlo, el iframe corre en el renderizador de la página.
-      // EnforceSameDocumentOriginInvariants es la feature que causó el
-      // «Aw Snap» al loguear en Facebook en Chrome 153 (crbug 549229687);
-      // desactivarla es una red de seguridad para builds viejos de Termux.
       ...(sinAislamiento
         ? [
             "--disable-site-isolation-trials",
-            "--disable-features=IsolateOrigins,site-per-process,SitePerProcessAndroid,IsolateOriginsAndroid,EnforceSameDocumentOriginInvariants",
+            "--disable-features=IsolateOrigins,site-per-process,SitePerProcessAndroid,IsolateOriginsAndroid",
           ]
         : []),
-      // Modo suave (BROWSER_SUAVE=1, activo por defecto en Android): la
-      // muerte llega ~2 s después de que Chromium levanta un proceso
+      // EnforceSameDocumentOriginInvariants es la feature que causó el
+      // «Aw Snap» al loguear en Facebook en Chrome 153 (crbug 549229687);
+      // desactivarla es una red de seguridad para builds viejos de
+      // Termux. Va aparte del aislamiento de sitio para que el modo
+      // conservador no la pierda.
+      ...(android
+        ? ["--disable-features=EnforceSameDocumentOriginInvariants"]
+        : []),
+      // Modo suave (BROWSER_SUAVE=1, activo por defecto en Android 12+):
+      // la muerte llega ~2 s después de que Chromium levanta un proceso
       // nuevo para la comprobación. Achica el modelo de procesos — sin
       // zygote (cada hijo arranca limpio), un solo renderizador y
       // agrupado por sitio — para que la comprobación reuse el proceso
@@ -704,7 +727,12 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
   // Diagnóstico: eventos de vida/muerte y curva de memoria cada 5 s.
   diag("lanzado", {
     commit: await commitActual(),
-    android: await androidRelease(),
+    android: release,
+    android12,
+    modoConservador,
+    checkpointCrashes: store.checkpointCrashes,
+    node: process.version,
+    arch: process.arch,
     wakeLock: store.wakeLockHeld,
     ejecutable: executable,
     jitless: process.env.BROWSER_JITLESS === "1",
@@ -1093,7 +1121,9 @@ export async function getBrowserStatus(): Promise<BrowserStatus> {
   if (hasSavedSession) {
     const release = await androidRelease();
     const aviso =
-      esAndroid() && release ? avisoProcesosAndroid(release) : "";
+      esAndroid() && release
+        ? avisoProcesosAndroid(release) || avisoCierresAndroidViejo(release)
+        : "";
     const detail =
       store.checkpointCrashes >= 2 && aviso
         ? `El navegador se cerró ${store.checkpointCrashes} veces durante la comprobación. ${aviso}`

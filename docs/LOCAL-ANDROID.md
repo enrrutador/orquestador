@@ -89,32 +89,43 @@ Facebook. La sesión queda guardada en `.data/browser-profile/`, en el
 teléfono, y sobrevive a reinicios.
 
 Si Facebook pide verificar que sos una persona, la app mantiene esa página
-abierta y la reabre en el mismo paso si el render se cae. En Android el
-navegador arranca en modo suave y sin aislamiento de sitio justamente para
-que esa verificación no levante un proceso que Android mate. Detalles en
-[NAVEGADOR.md](NAVEGADOR.md).
+abierta y la reabre en el mismo paso si el render se cae. En Android 12+ el
+navegador arranca en modo suave y, en todo Android, sin aislamiento de sitio,
+justamente para que esa verificación no levante un proceso que Android mate.
+Detalles en [NAVEGADOR.md](NAVEGADOR.md).
 
 El script `scripts/browser-login.mjs` abre una ventana real: en Android
 necesita X11 (Termux:X11) y no es necesario para el uso normal.
 
 ## Si Android cierra el navegador en la verificación
 
-Android 12 y posteriores tienen un **phantom process killer**: cuando
-Termux queda en segundo plano (por ejemplo, mientras mirás el panel desde
-Chrome), el sistema mata los procesos hijos que consumen CPU. La
-verificación de Facebook es justo eso, así que puede cerrar el navegador
+Esto aplica a **Android 12 o posterior**, que tiene un **phantom process
+killer**: cuando Termux queda en segundo plano (por ejemplo, mientras mirás
+el panel desde Chrome), el sistema mata los procesos hijos que consumen CPU.
+La verificación de Facebook es justo eso, así que puede cerrar el navegador
 aunque la app lo reabra y retome la misma página.
+
+En **Android 11 o menor no existe ese killer**. Si ahí se cierra, la causa
+es memoria insuficiente (low-memory killer) o una caída nativa de Chromium.
+El diagnóstico lo distingue: `process did exit: signal=SIGKILL` con poca RAM
+disponible apunta a memoria; `SIGSEGV`, `SIGTRAP` o `SIGABRT` apuntan a
+Chromium. En ese caso probá el botón **Probar verificación liviana
+(mbasic)**, cerrá otras apps y revisá `free -m` y `.data/inicio.log`.
 
 La app ya hace lo que puede desde adentro:
 
 - pide el **wake lock** de Termux al abrir el navegador (necesita
   `pkg install termux-api` y la app **Termux:API** desde F-Droid);
-- reduce el modelo de procesos (modo suave y sin aislamiento de sitio);
+- en Android 12+ reduce el modelo de procesos (modo suave) y en todo
+  Android desactiva el aislamiento de sitio;
+- tras dos cierres con la comprobación en pantalla, reintenta sin esos
+  ajustes agresivos;
 - reabre la página de la verificación y retoma la URL;
 - muestra el diagnóstico en la tarjeta Navegador (botón **Ver
   diagnóstico**) y en `http://localhost:3000/api/browser/diagnostico`.
 
-Si aun así se cierra, hay que desactivar el killer del lado de Android:
+Si aun así se cierra en Android 12+, hay que desactivar el killer del lado
+de Android:
 
 - **Android 14 o superior:** Ajustes → Sistema → Opciones de
   desarrollador → **Deshabilitar restricciones de procesos hijos**.

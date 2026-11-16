@@ -49,23 +49,29 @@ resuelva el dueño. Lo que sí hace es sostenerla:
 - Si Chromium se cierra entero, lo relanza solo con backoff y retoma la
   última URL. Tras una sesión estable, el contador de reintentos se limpia.
 
-En Android el navegador arranca con el **modo suave** y el **aislamiento de
-sitio desactivado** para que el iframe cruzado de la verificación no estrene
-un proceso que Android pueda matar. Se pueden apagar con `BROWSER_SUAVE=0`
-y `BROWSER_SIN_AISLAMIENTO=0`. La app también pide el **wake lock** de
-Termux (`pkg install termux-api` + app Termux:API) para que Android no mate
-los procesos hijos mientras mirás el panel desde Chrome.
+En Android 12+ el navegador arranca con el **modo suave** y, en todo
+Android, con el **aislamiento de sitio desactivado**, para que el iframe
+cruzado de la verificación no estrene un proceso que Android pueda matar.
+Se pueden apagar con `BROWSER_SUAVE=0` y `BROWSER_SIN_AISLAMIENTO=0`.
+En Android 9 no existe el phantom process killer, así que el modo suave no
+se activa solo. Tras dos cierres con la comprobación en pantalla, la app
+reintenta sin esos ajustes agresivos (modo conservador). La app también pide
+el **wake lock** de Termux (`pkg install termux-api` + app Termux:API) para
+que Android no duerma los procesos hijos mientras mirás el panel desde Chrome.
 
 Si la verificación pesada igual cierra el navegador, la tarjeta tiene el
 botón **Probar verificación liviana (mbasic)**: navega a la versión sin
 JavaScript de Facebook, mucho más liviana. El botón **Ver diagnóstico**
 muestra las últimas líneas de `.data/diagnostico.log` y permite copiarlas.
 
-El límite real puede estar en Android (phantom process killer): la app no
-puede desactivarlo desde adentro. En Android 14+ se apaga con **Ajustes →
-Sistema → Opciones de desarrollador → Deshabilitar restricciones de
-procesos hijos**; en Android 12/13 hace falta ADB. Los comandos están en
+El límite real puede estar en Android (phantom process killer, solo
+Android 12+): la app no puede desactivarlo desde adentro. En Android 14+ se
+apaga con **Ajustes → Sistema → Opciones de desarrollador → Deshabilitar
+restricciones de procesos hijos**; en Android 12/13 hace falta ADB. Los
+comandos están en
 [LOCAL-ANDROID.md](LOCAL-ANDROID.md#si-android-cierra-el-navegador-en-la-verificación).
+En Android 9 u 11 o menor no aplica: si el navegador se cierra ahí, es
+memoria insuficiente o una caída de Chromium; el diagnóstico lo distingue.
 
 ## Estados que reconoce la plataforma
 
@@ -88,7 +94,7 @@ lo consulta con su herramienta `browser_status`.
 | `BROWSER_PROFILE_DIR` | Perfil persistente del navegador (default `.data/browser-profile`). |
 | `BROWSER_STATE_PATH` | Copia de `storageState` que guarda el script de login (default `.data/browser-state.json`). La app usa el perfil persistente. |
 | `BROWSER_CDP_URL` | Alternativa: conectarse a un Chromium ya abierto por CDP. |
-| `BROWSER_SUAVE` | `1` achica el modelo de procesos (sin zygote, un renderizador, GPU en proceso principal). Por defecto `1` en Android; `0` lo apaga. |
+| `BROWSER_SUAVE` | `1` achica el modelo de procesos (sin zygote, un renderizador, agrupado por sitio). Por defecto `1` en Android 12+; `0` lo apaga. |
 | `BROWSER_SIN_AISLAMIENTO` | `1` desactiva el aislamiento de sitio. Por defecto `1` en Android; `0` lo apaga. |
 | `BROWSER_JITLESS` | `1` corre JavaScript sin JIT (más lento, evita memoria ejecutable RWX). |
 | `BROWSER_LOW_MEMORY` | `1` fuerza un solo proceso con heap acotado (resultó peor en el teléfono; queda para probar). |
