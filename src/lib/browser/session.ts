@@ -587,21 +587,27 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
   const android = esAndroid();
   const release = await androidRelease();
   const android12 = android && Number.parseInt(release, 10) >= 12;
-  // Tras dos cierres con la comprobación en pantalla se reintenta sin los
-  // ajustes agresivos. En Android 9 no hay phantom process killer: si
-  // igual se cierra, el problema es de Chromium o de memoria, y conviene
-  // descartar que lo estén causando los flags.
-  const modoConservador = !manual && store.checkpointCrashes >= 2;
+  // El modo conservador desactiva el modo suave (Android 12+), pero no
+  // vuelve a prender el aislamiento de sitio: en un teléfono débil el
+  // iframe de la comprobación estrena un proceso y muere ahí. En
+  // Android <12 no hay phantom process killer; el modo conservador
+  // automático queda sólo como diagnóstico y se puede forzar con
+  // BROWSER_CONSERVADOR=1 (o apagar con =0).
+  const conservadorEnv = process.env.BROWSER_CONSERVADOR;
+  const modoConservador =
+    conservadorEnv === "1" ||
+    (conservadorEnv !== "0" &&
+      !manual &&
+      !android12 &&
+      store.checkpointCrashes >= 2);
   // En Android el aislamiento de sitio es lo que hace que el iframe
   // cruzado de la comprobación de Facebook estrene un proceso nuevo. En
-  // Android 12+ el sistema lo mata a los ~2 s; desactivarlo por defecto
-  // mantiene la comprobación dentro del renderizador que ya existe. Se
-  // puede apagar con BROWSER_SIN_AISLAMIENTO=0 (o forzar en PC con =1).
+  // un teléfono débil ese proceso extra es el que muere, así que se
+  // mantiene desactivado también en modo conservador. Se puede apagar
+  // con BROWSER_SIN_AISLAMIENTO=0 (o forzar en PC con =1).
   const sinAislamiento =
     process.env.BROWSER_SIN_AISLAMIENTO === "1" ||
-    (!modoConservador &&
-      android &&
-      process.env.BROWSER_SIN_AISLAMIENTO !== "0");
+    (android && process.env.BROWSER_SIN_AISLAMIENTO !== "0");
   // Modo suave: mismo objetivo por otra vía (sin zygote, un solo
   // renderizador y agrupado por sitio). Solo por defecto en Android 12+,
   // donde existe el phantom process killer; en Android 9 no se usa salvo
@@ -743,13 +749,19 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
     debug: process.env.BROWSER_DEBUG === "1",
     ...sampleMemory(),
   });
-  live.sampler = setInterval(() => {
-    try {
-      diag("memoria", { url: urlDe(live.page), ...sampleMemory() });
-    } catch {
-      /* el muestreo nunca rompe la sesión */
-    }
-  }, 5000);
+  // La curva de memoria cada 5 s es útil para diagnosticar, pero en un
+  // teléfono débil leer /proc y escribir la bitácora compite con
+  // Chromium. Se activa sólo con BROWSER_DIAG=1; los eventos de cierre
+  // igual guardan una foto de memoria.
+  if (process.env.BROWSER_DIAG === "1") {
+    live.sampler = setInterval(() => {
+      try {
+        diag("memoria", { url: urlDe(live.page), ...sampleMemory() });
+      } catch {
+        /* el muestreo nunca rompe la sesión */
+      }
+    }, 5000);
+  }
 
   context.on("close", () => {
     const vivioMs = Date.now() - launchedAt;
@@ -759,9 +771,7 @@ export async function startBrowser(manual = true): Promise<BrowserStatus> {
       checkpointCrashes: store.checkpointCrashes,
       ...sampleMemory(),
     });
-    if (store.live?.context === context && store.live.sampler) {
-      clearInterval(store.live.sampler);
-    }
+    if (live.sampler) clearInterval(live.sampler);
     if (store.live?.context === context) store.live = null;
     if (store.lastUrl?.includes("/checkpoint")) {
       store.checkpointCrashes++;
@@ -800,6 +810,7 @@ export async function stopBrowser(): Promise<void> {
   store.stopRequested = true;
   const live = store.live;
   store.live = null;
+  if (live?.sampler) clearInterval(live.sampler);
   if (live?.external) {
     // Navegador visible del usuario: la app solo se desconecta; la
     // ventana sigue abierta y es de él.

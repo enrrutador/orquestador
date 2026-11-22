@@ -70,16 +70,17 @@ export default function BrowserCard() {
   }, [fetchStatus]);
 
   // Mientras el navegador está abierto: la pantalla se actualiza sola.
-  // En plena comprobación de Facebook, la captura baja a cada 6 s: en un
-  // teléfono débil, capturar la pantalla completa cada 1,2 s compite por
-  // memoria y procesador con la propia comprobación y ayuda a que el
+  // En login o comprobación de Facebook, la captura baja a cada 6 s: en
+  // un teléfono débil, capturar la pantalla completa cada 1,2 s compite
+  // por memoria y procesador con la propia página y ayuda a que el
   // navegador se cierre justo ahí (observado 2026-11-14/15).
   useEffect(() => {
     if (!running) return;
-    const enComprobacion = status?.state === "checkpoint";
+    const capturaLenta =
+      status?.state === "checkpoint" || status?.state === "login-requerido";
     const shot = setInterval(
       () => setShotTick((t) => t + 1),
-      enComprobacion ? 6000 : 1200
+      capturaLenta ? 6000 : 1200
     );
     return () => clearInterval(shot);
   }, [running, status?.state]);

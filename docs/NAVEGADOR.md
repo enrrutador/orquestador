@@ -53,11 +53,15 @@ En Android 12+ el navegador arranca con el **modo suave** y, en todo
 Android, con el **aislamiento de sitio desactivado**, para que el iframe
 cruzado de la verificación no estrene un proceso que Android pueda matar.
 Se pueden apagar con `BROWSER_SUAVE=0` y `BROWSER_SIN_AISLAMIENTO=0`.
-En Android 9 no existe el phantom process killer, así que el modo suave no
-se activa solo. Tras dos cierres con la comprobación en pantalla, la app
-reintenta sin esos ajustes agresivos (modo conservador). La app también pide
-el **wake lock** de Termux (`pkg install termux-api` + app Termux:API) para
-que Android no duerma los procesos hijos mientras mirás el panel desde Chrome.
+En Android 9 o menor no existe el phantom process killer, así que el modo
+suave no se activa solo. El modo conservador sólo desactiva el modo suave
+(no vuelve a activar el aislamiento de sitio) y se puede forzar con
+`BROWSER_CONSERVADOR=1`. Si el teléfono es de 32 bits (`uname -m` devuelve
+`armv7l` o `armv8l`), probá `BROWSER_JITLESS=1`: evita que V8 pida memoria
+ejecutable RWX, que Android puede cortar en plena comprobación. La app
+también pide el **wake lock** de Termux (`pkg install termux-api` + app
+Termux:API) para que Android no duerma los procesos hijos mientras mirás el
+panel desde Chrome.
 
 Si la verificación pesada igual cierra el navegador, la tarjeta tiene el
 botón **Probar verificación liviana (mbasic)**: navega a la versión sin
@@ -96,7 +100,9 @@ lo consulta con su herramienta `browser_status`.
 | `BROWSER_CDP_URL` | Alternativa: conectarse a un Chromium ya abierto por CDP. |
 | `BROWSER_SUAVE` | `1` achica el modelo de procesos (sin zygote, un renderizador, agrupado por sitio). Por defecto `1` en Android 12+; `0` lo apaga. |
 | `BROWSER_SIN_AISLAMIENTO` | `1` desactiva el aislamiento de sitio. Por defecto `1` en Android; `0` lo apaga. |
+| `BROWSER_CONSERVADOR` | `1` desactiva el modo suave para descartar que los flags causen el cierre; no vuelve a activar el aislamiento de sitio. |
 | `BROWSER_JITLESS` | `1` corre JavaScript sin JIT (más lento, evita memoria ejecutable RWX). |
 | `BROWSER_LOW_MEMORY` | `1` fuerza un solo proceso con heap acotado (resultó peor en el teléfono; queda para probar). |
 | `BROWSER_URL_INICIAL` | Fuerza la URL del primer arranque (default: última URL o `https://www.facebook.com/`). |
 | `BROWSER_DEBUG` | `1` vuelca la vida del proceso de Chromium y escribe `.data/chromium.log`. |
+| `BROWSER_DIAG` | `1` guarda una curva de memoria cada 5 s en `diagnostico.log`; por defecto sólo se guarda la foto al cerrar. |
